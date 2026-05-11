@@ -1,0 +1,93 @@
+# Copy this file to config.yaml and fill in local secrets.
+# Do not commit real SID, AI keys, or WeCom credentials.
+
+database_path: data/alerts.db
+lock_file: data/run.lock
+log_file: logs/alert_ai_assistant.log
+timezone: Asia/Shanghai
+log_level: INFO
+
+source:
+  # Use mock_text for local development, monitor_api for the company network.
+  kind: mock_text
+  mock_text_path: "/Users/zhangyanrui/Downloads/企业微信告警消息复制.txt"
+
+monitor_api:
+  enabled: false
+  base_url: "https://10.50.132.120"
+  search_path: "/api/monitor/alarm/search"
+  sid: ""
+  owner_instance_name: "实例名称"
+  timeout_seconds: 30
+  active_lookback_days: 5
+  # Adjust these after the real API response shape is confirmed.
+  field_mapping:
+    device_ip: "ip"
+    hostname: "hostname"
+    alarm_time: "create_time"
+    title: "title"
+    content: "content"
+    severity: "severity"
+    external_id: "id"
+  # Fill bucket-specific status filters after confirming platform status values.
+  bucket_search_units:
+    unhandled:
+      - attr: is_ignore
+        search: [0]
+        operator: "="
+      - attr: status
+        search: [0]
+        operator: "="
+      - attr: instance_name
+        search: ["实例名称"]
+        operator: "="
+    processing:
+      - attr: is_ignore
+        search: [0]
+        operator: "="
+      - attr: status
+        search: [1]
+        operator: "="
+      - attr: instance_name
+        search: ["实例名称"]
+        operator: "="
+    ended:
+      - attr: is_ignore
+        search: [0]
+        operator: "="
+      - attr: status
+        search: [2]
+        operator: "="
+      - attr: instance_name
+        search: ["实例名称"]
+        operator: "="
+
+llm:
+  enabled: false
+  base_url: "https://api.openai.com/v1"
+  api_key: ""
+  model: ""
+  timeout_seconds: 60
+  max_focus_alerts: 10
+
+wecom:
+  enabled: false
+  webhook_url: ""
+  token: ""
+  target_user: ""
+  max_message_chars: 3500
+  dry_run: true
+
+retention:
+  raw_alert_days: 5
+  summary_days: 15
+  log_days: 15
+
+low_priority_keywords:
+  - "服务器接入交换机端口连接状态告警"
+  - "端口连接状态告警"
+
+mask_names:
+  - "王超"
+  - "张晏瑞"
+
