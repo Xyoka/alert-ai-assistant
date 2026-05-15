@@ -35,9 +35,11 @@ class WeComSmartBotNotifier:
         return NotifyResult(delivered=True, parts=len(parts), dry_run=False)
 
     def _post_text(self, text: str) -> str:
+        msg_type = self.config.msg_type
+        content_key = "markdown" if msg_type == "markdown" else "text"
         payload = {
-            "msgtype": "text",
-            "text": {
+            "msgtype": msg_type,
+            content_key: {
                 "content": text,
             },
         }

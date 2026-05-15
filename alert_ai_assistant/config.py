@@ -35,6 +35,7 @@ class WeComConfig:
     token: str = ""
     target_user: str = ""
     max_message_chars: int = 3500
+    msg_type: str = "markdown"
     dry_run: bool = True
 
 

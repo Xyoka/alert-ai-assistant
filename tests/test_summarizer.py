@@ -17,8 +17,9 @@ def test_no_alarm_summary():
     stats = build_stats([], start, end, [], 10)
     text = fallback_summary(stats)
 
-    assert "本小时无新增告警" in text
-    assert "当前无需要重点关注" in text
+    assert "**总体情况**" in text
+    assert "未处理：0条" in text
+    assert "**未处理（重点）**" in text
 
 
 def test_low_priority_counted_but_not_focused():
@@ -62,5 +63,6 @@ def test_generate_summary_falls_back_when_llm_fails():
     text, ai_used = generate_summary(stats, config, llm_client=FailingLLM())
 
     assert not ai_used
-    assert "网络告警AI摘要" in text
+    assert "**总体情况**" in text
+    assert "0条" in text
 

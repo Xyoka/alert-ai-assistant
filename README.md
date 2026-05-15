@@ -86,36 +86,30 @@ python3 -m alert_ai_assistant cleanup --config config.yaml
 
 ## Windows 任务计划程序
 
-建议创建两个任务：
-
-- 每小时运行一次摘要任务：
+摘要任务已创建并启用，每小时执行一次（3 分钟延迟以防网管平台告警拥塞）：
 
 ```powershell
-.\.venv\Scripts\python.exe -m alert_ai_assistant run-once --config C:\path\to\config.yaml
+TaskName: \alert-ai-assistant
+Schedule: 每小时一次，起始 17:03，每整点后的 3 分钟触发
+Command: g:\vibe\alert-ai-assistant\.venv\Scripts\python.exe -m alert_ai_assistant run-once --config g:\vibe\alert-ai-assistant\config.yaml
+Start In: g:\vibe\alert-ai-assistant
 ```
 
-- 每天运行一次清理任务：
+程序会使用 `data/run.lock` 防止上一次未结束时重复运行。
+
+如果需要手动重建任务：
 
 ```powershell
-.\.venv\Scripts\python.exe -m alert_ai_assistant cleanup --config C:\path\to\config.yaml
+schtasks /create /tn "alert-ai-assistant" /tr "g:\vibe\alert-ai-assistant\.venv\Scripts\python.exe -m alert_ai_assistant run-once --config g:\vibe\alert-ai-assistant\config.yaml" /sc hourly /mo 1 /st 17:03 /f
 ```
 
-任务计划程序的“起始于”目录设置为项目目录。程序会使用 `data/run.lock` 防止上一次未结束时重复运行。
+然后设置"起始于"(WorkingDirectory) 为 `g:\vibe\alert-ai-assistant`（通过任务计划程序 UI 或 XML 导入）。
 
-## 网管接口联调点
+清理过期数据的任务建议手动执行（不需要定时）：
 
-真实接口返回格式尚未确认，联调时优先确认这些字段：
-
-- IP 字段
-- 主机名字段
-- 告警时间字段
-- 告警标题字段
-- 告警内容字段
-- 告警级别字段
-- 唯一 ID 字段
-- 未处理、处理中、已结束的 `status` 取值
-
-确认后只需要调整 `config.yaml` 的 `field_mapping` 和 `bucket_search_units`。
+```powershell
+.\.venv\Scripts\python.exe -m alert_ai_assistant cleanup --config config.yaml
+```
 
 ## 测试
 

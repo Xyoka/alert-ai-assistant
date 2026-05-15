@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 import json
 import re
@@ -8,7 +9,6 @@ from typing import Iterable
 from .config import AppConfig
 from .llm import OpenAICompatibleClient
 from .models import AlertRecord, STATUS_ENDED, STATUS_PROCESSING, STATUS_UNHANDLED, SummaryStats
-from .sanitizer import sanitize_text
 
 
 def build_stats(
@@ -29,6 +29,7 @@ def build_stats(
         if record.alarm_time and window_start <= record.alarm_time <= window_end
     ]
     low_priority = [record for record in record_list if is_low_priority(record, low_priority_keywords)]
+    # Focus alerts: exclude already-resolved alarms to reduce noise
     current = unresolved_current_records(record_list)
     focus_alerts = [
         record
@@ -36,13 +37,18 @@ def build_stats(
         if not is_low_priority(record, low_priority_keywords)
     ][:max_focus_alerts]
 
+    # Counts directly from raw API results (same as platform view)
+    unhandled_count = sum(1 for r in record_list if r.status_bucket == STATUS_UNHANDLED)
+    processing_count = sum(1 for r in record_list if r.status_bucket == STATUS_PROCESSING)
+    ended_count = sum(1 for r in window_records if r.status_bucket == STATUS_ENDED)
+
     return SummaryStats(
         window_start=window_start,
         window_end=window_end,
         total_new=len(window_records),
-        unhandled_count=sum(1 for record in current if record.status_bucket == STATUS_UNHANDLED),
-        processing_count=sum(1 for record in current if record.status_bucket == STATUS_PROCESSING),
-        ended_count=sum(1 for record in window_records if record.status_bucket == STATUS_ENDED),
+        unhandled_count=unhandled_count,
+        processing_count=processing_count,
+        ended_count=ended_count,
         low_priority_count=len(low_priority),
         focus_alerts=focus_alerts,
         all_alerts=record_list,
@@ -58,70 +64,164 @@ def generate_summary(
     client = llm_client or OpenAICompatibleClient(config.llm)
     ai_text = client.complete(prompt) if client else None
     if ai_text:
-        return sanitize_text(ai_text, config.mask_names), True
-    return fallback_summary(stats, config.mask_names), False
+        return ai_text, True
+    return fallback_summary(stats), False
 
 
 def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
-    payload = stats.to_prompt_payload(max_alerts=config.llm.max_focus_alerts)
-    sanitized_payload = sanitize_text(json.dumps(payload, ensure_ascii=False, indent=2), config.mask_names)
-    return f"""
-请根据下面结构化网络告警数据生成企业微信摘要。
+    unhandled = [a for a in stats.all_alerts if a.status_bucket == "unhandled"]
+    processing = [a for a in stats.all_alerts if a.status_bucket == "processing"]
+    ended = [a for a in stats.all_alerts if a.status_bucket == "ended"]
 
-硬性要求：
-- 固定使用“总体情况 / 建议优先关注 / 其他说明”三段。
-- 每条重点告警只列 IP、主机、时间、内容、状态、建议。
-- 使用“疑似”“建议确认”“当前仍在未处理/处理中列表”等谨慎措辞。
-- 不要输出“无需处理”“可以忽略”“已经确认无风险”。
-- 如果没有重点告警，明确写“当前无需要重点关注的未处理/处理中告警”。
+    BW_KEYWORDS = config.low_priority_keywords
+    def _is_bw(a):
+        return any(kw in (a.title or "") or kw in (a.content or "") for kw in BW_KEYWORDS)
+
+    def brief(alert):
+        interface = extract_interface(f"{alert.title}\n{alert.content}\n{alert.raw_payload}")
+        person = _collect_person(alert)
+        content_detail = (alert.content or alert.title).replace("<br>", " | ")
+        content_snippet = single_line(content_detail, 250)
+        return {
+            "ip": alert.device_ip,
+            "time": alert.alarm_time_text,
+            "title": alert.title,
+            "interface": interface or "",
+            "负责人": person,
+            "content_detail": content_snippet,
+        }
+
+    # Separate bandwidth alarms from detailed ones
+    def split_bw(items):
+        bw = [a for a in items if _is_bw(a)]
+        detail = [a for a in items if not _is_bw(a)]
+        return bw, detail
+
+    bw_unhandled, det_unhandled = split_bw(unhandled)
+    bw_processing, det_processing = split_bw(processing)
+    bw_ended, det_ended = split_bw(ended)
+
+    payload = {
+        "window": f"{stats.window_start:%Y-%m-%d %H:%M} - {stats.window_end:%Y-%m-%d %H:%M}",
+        "stats": {
+            "total": stats.total_new,
+            "unhandled": stats.unhandled_count,
+            "processing": stats.processing_count,
+            "ended": stats.ended_count,
+        },
+        "alert_list": {
+            "未处理": [brief(a) for a in det_unhandled],
+            "处理中": [brief(a) for a in det_processing],
+            "已结束": [brief(a) for a in det_ended],
+        },
+        "带宽利用率告警": {
+            "未处理": len(bw_unhandled),
+            "处理中": len(bw_processing),
+            "已结束": len(bw_ended),
+        },
+    }
+    payload_json = json.dumps(payload, ensure_ascii=False, indent=2)
+    return f"""
+请根据下面的结构化网络告警数据生成企业微信摘要。
+
+要求和规矩：
+- 严格按以下三段格式输出，不允许改变段名称和顺序：
+  **总体情况**
+  **未处理（重点）**
+  **处理中**
+  **已结束**
+- **总体情况**：逐行列出，格式：
+  - 窗口时间：
+  - 未处理：x条
+  - 处理中：x条
+  - 已结束：x条
+- **未处理（重点）**：观察每条告警的 content_detail，按**实际故障类型**分类（如端口Down、端口Up、链路故障、配置变更、CPU/内存告警、端口错误等），不要用"日志告警类""网络设备日志告警"这种笼统分类。子类名为纯文本不加粗。每条格式：IP / 时间 / 简要内容 / 负责人。`带宽利用率告警`字段按桶统计了数量，属于哪个桶就加到哪个段末尾（格式："端口带宽利用率告警：N条"），不逐条展开。
+- **处理中**：格式同上。带宽利用率告警同样处理。
+- **已结束**：格式同上。带宽利用率告警同样处理。
+- 某类无告警则子内容写"无"，段名照常输出。
 
 数据：
-{sanitized_payload}
+{payload_json}
 """.strip()
 
 
-def fallback_summary(stats: SummaryStats, mask_names: list[str] | None = None) -> str:
+def _collect_person(alert: AlertRecord) -> list[str]:
+    """Extract responsible person names from hostname (instance_name), matching platform order."""
+    person_str = _extract_person(alert.hostname)
+    if person_str:
+        return [n.strip() for n in person_str.replace("、", ",").split(",") if n.strip()]
+    return []
+
+
+def fallback_summary(stats: SummaryStats) -> str:
     window = f"{stats.window_start:%Y-%m-%d %H:%M}-{stats.window_end:%H:%M}"
-    if stats.total_new == 0 and not stats.focus_alerts:
+    if stats.total_new == 0 and not stats.unhandled_count and not stats.processing_count:
         return (
-            f"【网络告警AI摘要】{window}\n"
-            "本小时无新增告警。\n"
-            "当前无需要重点关注的未处理/处理中告警。"
+            f"**总体情况**\n"
+            f"- 窗口时间：{window}\n"
+            f"- 未处理：0条\n"
+            f"- 处理中：0条\n"
+            f"- 已结束：0条\n\n"
+            "**未处理（重点）**\n无\n\n"
+            "**处理中**\n无\n\n"
+            "**已结束**\n无"
         )
 
-    lines = [
-        f"【网络告警AI摘要】{window}",
-        "",
-        "一、总体情况",
-        f"本小时新增：{stats.total_new} 条",
-        f"当前未处理：{stats.unhandled_count} 条",
-        f"当前处理中：{stats.processing_count} 条",
-        f"本小时已结束：{stats.ended_count} 条",
-        f"下联接口类告警：{stats.low_priority_count} 条，已计入统计，未重点展开",
-        "",
-        "二、建议优先关注",
-    ]
-    if stats.focus_alerts:
-        for index, alert in enumerate(stats.focus_alerts, start=1):
-            content = single_line(alert.content or alert.title)
-            status_text = "当前仍在未处理/处理中列表"
-            lines.extend([
-                f"{index}. IP：{alert.device_ip or 'unknown'}",
-                f"   主机：{alert.hostname or 'unknown'}",
-                f"   时间：{alert.alarm_time_text or 'unknown'}",
-                f"   内容：{content}",
-                f"   状态：{status_text}",
-                "   建议：建议确认",
-            ])
-    else:
-        lines.append("当前无需要重点关注的未处理/处理中告警。")
+    unhandled = [a for a in stats.all_alerts if a.status_bucket == "unhandled"]
+    processing = [a for a in stats.all_alerts if a.status_bucket == "processing"]
+    ended = [a for a in stats.all_alerts if a.status_bucket == "ended"]
 
-    lines.extend([
+    _BW_KEYWORDS = ["使用率告警", "入流量使用率", "出流量使用率"]
+
+    def _is_bandwidth(title: str) -> bool:
+        return any(kw in title for kw in _BW_KEYWORDS)
+
+    def _section(records, title):
+        lines = [f"**{title}**"]
+        if not records:
+            lines.append("无")
+            return lines
+        groups = Counter(a.title for a in records)
+        for group_title, count in groups.most_common():
+            if _is_bandwidth(group_title):
+                lines.append(f"端口带宽利用率告警：{count}条")
+            else:
+                lines.append(f"{group_title}：")
+                for alert in [a for a in records if a.title == group_title]:
+                    interface = extract_interface(f"{alert.title}\n{alert.content}\n{alert.raw_payload}")
+                    intf_text = f" ({interface})" if interface else ""
+                    person = "、".join(_collect_person(alert))
+                    person_text = f" / {person}" if person else ""
+                    lines.append(f"- {alert.device_ip} / {alert.alarm_time_text}{intf_text}{person_text}")
+        return lines
+
+    result = [
+        "**总体情况**",
+        f"- 窗口时间：{window}",
+        f"- 未处理：{stats.unhandled_count}条",
+        f"- 处理中：{stats.processing_count}条",
+        f"- 已结束：{stats.ended_count}条",
         "",
-        "三、其他说明",
-        "AI 仅作辅助摘要，最终以网管平台状态为准。",
-    ])
-    return sanitize_text("\n".join(lines), mask_names)
+    ]
+    result.extend(_section(unhandled, "未处理（重点）"))
+    result.append("")
+    result.extend(_section(processing, "处理中"))
+    result.append("")
+    result.extend(_section(ended, "已结束"))
+
+    return "\n".join(result)
+
+
+def _extract_person(hostname: str) -> str:
+    """从 hostname（如 JF1-SW_王超、张晏瑞 或 JF1-SW_王超）中提取负责人姓名。"""
+    idx = hostname.rfind("_")
+    if idx == -1 or idx + 1 >= len(hostname):
+        return ""
+    suffix = hostname[idx + 1:]
+    # Return only if suffix contains Chinese characters (i.e. actual person names)
+    if any("\u4e00" <= c <= "\u9fff" for c in suffix):
+        return suffix
+    return ""
 
 
 def is_low_priority(alert: AlertRecord, keywords: list[str]) -> bool:

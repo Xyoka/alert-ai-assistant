@@ -10,24 +10,24 @@ log_level: INFO
 source:
   # Use mock_text for local development, monitor_api for the company network.
   kind: mock_text
-  mock_text_path: "/Users/zhangyanrui/Downloads/企业微信告警消息复制.txt"
+  mock_text_path: "C:/path/to/企业微信告警消息复制.txt"
 
 monitor_api:
   enabled: false
   base_url: "https://10.50.132.120"
   search_path: "/api/monitor/alarm/search"
   sid: ""
-  owner_instance_name: "实例名称"
+  owner_instance_name: "你的负责人姓名"
   timeout_seconds: 30
   active_lookback_days: 5
-  # Adjust these after the real API response shape is confirmed.
+  # API 查询参数用 secret= 而不是 token=，自签名证书自动跳过验证。
   field_mapping:
     device_ip: "ip"
-    hostname: "hostname"
+    hostname: "instance_name"
     alarm_time: "create_time"
-    title: "title"
-    content: "content"
-    severity: "severity"
+    title: "alarm_title"
+    content: "alarm_content"
+    severity: "alarm_level_id"
     external_id: "id"
   # Fill bucket-specific status filters after confirming platform status values.
   bucket_search_units:
@@ -39,34 +39,34 @@ monitor_api:
         search: [0]
         operator: "="
       - attr: instance_name
-        search: ["实例名称"]
+        search: ["你的负责人姓名"]
         operator: "="
     processing:
-      - attr: is_ignore
-        search: [0]
-        operator: "="
       - attr: status
         search: [1]
         operator: "="
-      - attr: instance_name
-        search: ["实例名称"]
-        operator: "="
-    ended:
       - attr: is_ignore
         search: [0]
+        operator: "="
+      - attr: instance_name
+        search: ["你的负责人姓名"]
+        operator: "="
+    ended:
+      - attr: is_recover
+        search: [1]
         operator: "="
       - attr: status
         search: [2]
         operator: "="
       - attr: instance_name
-        search: ["实例名称"]
+        search: ["你的负责人姓名"]
         operator: "="
 
 llm:
   enabled: false
-  base_url: "https://api.openai.com/v1"
+  base_url: "https://api.deepseek.com"
   api_key: ""
-  model: ""
+  model: "deepseek-chat"
   timeout_seconds: 60
   max_focus_alerts: 10
 
@@ -76,6 +76,7 @@ wecom:
   token: ""
   target_user: ""
   max_message_chars: 3500
+  msg_type: markdown
   dry_run: true
 
 retention:
@@ -86,6 +87,9 @@ retention:
 low_priority_keywords:
   - "服务器接入交换机端口连接状态告警"
   - "端口连接状态告警"
+  - "使用率告警"
+  - "入流量使用率"
+  - "出流量使用率"
 
 mask_names:
   - "王超"
