@@ -73,9 +73,10 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
     processing = [a for a in stats.all_alerts if a.status_bucket == "processing"]
     ended = [a for a in stats.all_alerts if a.status_bucket == "ended"]
 
-    BW_KEYWORDS = config.low_priority_keywords
+    _BW_KEYWORDS = ["使用率告警", "入流量使用率", "出流量使用率"]
     def _is_bw(a):
-        return any(kw in (a.title or "") or kw in (a.content or "") for kw in BW_KEYWORDS)
+        text = f"{a.title}\n{a.content}"
+        return any(kw in text for kw in _BW_KEYWORDS)
 
     def brief(alert):
         interface = extract_interface(f"{alert.title}\n{alert.content}\n{alert.raw_payload}")
@@ -213,14 +214,14 @@ def fallback_summary(stats: SummaryStats) -> str:
 
 
 def _extract_person(hostname: str) -> str:
-    """从 hostname（如 JF1-SW_王超、张晏瑞 或 JF1-SW_王超）中提取负责人姓名。"""
-    idx = hostname.rfind("_")
-    if idx == -1 or idx + 1 >= len(hostname):
-        return ""
-    suffix = hostname[idx + 1:]
-    # Return only if suffix contains Chinese characters (i.e. actual person names)
-    if any("\u4e00" <= c <= "\u9fff" for c in suffix):
-        return suffix
+    """从 hostname 中提取负责人姓名。支持下划线（_）和横线（-）分隔。"""
+    for sep in ("_", "-"):
+        idx = hostname.rfind(sep)
+        if idx == -1 or idx + 1 >= len(hostname):
+            continue
+        suffix = hostname[idx + 1:]
+        if any("\u4e00" <= c <= "\u9fff" for c in suffix):
+            return suffix
     return ""
 
 

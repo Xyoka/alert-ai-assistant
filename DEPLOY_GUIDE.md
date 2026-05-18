@@ -284,6 +284,96 @@ schtasks /create /tn "alert-ai-assistant" /tr "D:\alert-ai-assistant\.venv\Scrip
 
 ---
 
+---
+
+## 8. 个性化定制（进阶）
+
+以下功能可以根据你的需求自行修改，建议由技术人员操作。
+
+### 8.1 修改摘要格式和内容
+
+摘要由 **AI（DeepSeek）** 生成，提示词（Prompt）决定了摘要的格式和内容。
+
+**AI 系统提示词**（告诉 AI 它的角色定位）：
+
+文件：`alert_ai_assistant/llm.py`，搜索 `"content": "你是网络运维告警摘要助手"`
+
+可以修改的部分举例：
+- 要求更长或更短的摘要
+- 要求使用更专业或更通俗的语言
+- 要求增加或减少某些分析维度
+
+**AI 用户提示词**（告诉 AI 本次数据怎么输出）：
+
+文件：`alert_ai_assistant/summarizer.py`，搜索 `build_llm_prompt` 函数中的 `要求和规矩：`
+
+可以修改的部分举例：
+- 三段结构的标题名称（如"未处理（重点）"改为"需要关注的告警"）
+- 每条告警的展示字段和顺序
+- 分类规则和故障类型列表
+- 带宽利用率告警的处理方式
+
+### 8.2 修改低优先级规则
+
+`config.yaml` 中的 `low_priority_keywords` 列表定义了哪些告警属于低优先级：
+
+```yaml
+low_priority_keywords:
+  - "端口连接状态告警"      # 端口类告警
+  - "使用率告警"            # 带宽利用率类
+  - "入流量使用率"
+  - "出流量使用率"
+```
+
+想增加或减少低优先级类别，直接增删关键词即可。
+
+### 8.3 修改数据类型
+
+`config.yaml` 中的 `field_mapping` 定义了 API 字段与程序字段的对应关系：
+
+```yaml
+field_mapping:
+  device_ip: "ip"                # API 返回的 IP 字段名
+  hostname: "instance_name"      # 主机名/负责人字段名
+  alarm_time: "create_time"      # 告警时间字段名
+  title: "alarm_title"           # 告警标题字段名
+  content: "alarm_content"       # 告警内容字段名
+  severity: "alarm_level_id"     # 告警级别字段名
+  external_id: "id"              # 唯一 ID 字段名
+```
+
+如果网管平台 API 字段名有变化，修改此处即可。
+
+### 8.4 修改企业微信消息类型
+
+`config.yaml` 中的 `msg_type` 控制消息格式：
+
+```yaml
+wecom:
+  msg_type: markdown   # markdown：带格式（加粗、列表），text：纯文本
+```
+
+### 8.5 修改数据保存天数
+
+`config.yaml` 中的 `retention` 控制数据保存时长：
+
+```yaml
+retention:
+  raw_alert_days: 5     # 原始告警保留天数
+  summary_days: 15      # 摘要记录保留天数
+  log_days: 15          # 运行日志保留天数
+```
+
+### 8.6 修改时区
+
+`config.yaml` 中的 `timezone` 控制显示时区：
+
+```yaml
+timezone: Asia/Shanghai
+```
+
+---
+
 ## 备注：获取企业微信群机器人 Webhook
 
 如果你需要推送到**你自己的群**，按以下步骤操作：
