@@ -124,10 +124,10 @@ sid: "你的SID"
 找到：
 
 ```yaml
-owner_instance_name: "张晏瑞"
+owner_instance_name: "张三"
 ```
 
-如果**你不是张晏瑞**，把 `张晏瑞` 改为**你自己的名字**。
+把 `张三` 改为**你自己的名字**。
 
 继续往下翻，找到以下三处，也把名字改成你自己的：
 
@@ -135,15 +135,15 @@ owner_instance_name: "张晏瑞"
     unhandled:
       ...
       - attr: instance_name
-        search: ["张晏瑞"]     ← 改成你的名字
+        search: ["张三"]     ← 改成你的名字
     processing:
       ...
       - attr: instance_name
-        search: ["张晏瑞"]     ← 改成你的名字
+        search: ["张三"]     ← 改成你的名字
     ended:
       ...
       - attr: instance_name
-        search: ["张晏瑞"]     ← 改成你的名字
+        search: ["张三"]     ← 改成你的名字
 ```
 
 #### ③ 填写 LLM API 密钥

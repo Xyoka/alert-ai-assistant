@@ -2,12 +2,12 @@ from alert_ai_assistant.sanitizer import sanitize_text
 
 
 def test_sanitize_responsible_person_line_and_configured_names():
-    text = "负责人：王超(wangchao01),张晏瑞(zhangyr01)\n告警内容：端口down\n张晏瑞"
+    text = "负责人：张三(zhangsan01),李四(lisi01)\n告警内容：端口down\n张三"
 
-    sanitized = sanitize_text(text, ["张晏瑞"])
+    sanitized = sanitize_text(text, ["张三"])
 
-    assert "wangchao01" not in sanitized
-    assert "zhangyr01" not in sanitized
-    assert "张晏瑞" not in sanitized
+    assert "zhangsan01" not in sanitized
+    assert "lisi01" not in sanitized
+    assert "张三" not in sanitized
     assert "负责人：<已脱敏>" in sanitized
 
