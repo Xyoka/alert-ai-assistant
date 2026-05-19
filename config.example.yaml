@@ -91,7 +91,5 @@ low_priority_keywords:
   - "入流量使用率"
   - "出流量使用率"
 
-mask_names:
-  - "王超"
-  - "张晏瑞"
+# mask_names: []  # 脱敏功能已移除，此配置不再生效
 

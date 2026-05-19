@@ -81,8 +81,7 @@ class AppConfig:
     low_priority_keywords: list[str] = field(default_factory=lambda: [
         "服务器接入交换机端口连接状态告警",
         "端口连接状态告警",
-    ])
-    mask_names: list[str] = field(default_factory=list)
+    ]) 
 
 
 def load_config(path: str | Path | None) -> AppConfig:
@@ -117,7 +116,6 @@ def _build_config(data: dict[str, Any]) -> AppConfig:
             "服务器接入交换机端口连接状态告警",
             "端口连接状态告警",
         ])),
-        mask_names=list(data.get("mask_names", [])),
     )
 
 
