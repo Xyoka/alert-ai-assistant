@@ -5,7 +5,7 @@ import pytest
 from alert_ai_assistant.sources import MockTextSource
 
 
-SAMPLE_PATH = Path("/path/to/企业微信告警消息复制.txt")
+SAMPLE_PATH = Path("/Users/zhangyanrui/Downloads/企业微信告警消息复制.txt")
 
 
 @pytest.mark.skipif(not SAMPLE_PATH.exists(), reason="local sample file is not available")
