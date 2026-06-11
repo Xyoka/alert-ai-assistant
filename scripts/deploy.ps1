@@ -1,7 +1,11 @@
-# alert-ai-assistant 一键部署脚本
+﻿# alert-ai-assistant 一键部署脚本
 # 请在 PowerShell 中运行：  powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
 
 $ErrorActionPreference = "Stop"
+# 确保控制台使用 UTF-8 编码，避免中文乱码
+$null = [System.Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($true)
+$null = chcp 65001 2>$null
+
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 
 Write-Host "=== alert-ai-assistant 部署脚本 ===" -ForegroundColor Cyan
@@ -45,7 +49,7 @@ if (Test-Path $configPath) {
     Write-Host "  3. bucket_search_units 中的  - 所有 instance_name 改为你的姓名" -ForegroundColor White
     Write-Host "  4. llm.api_key              - LLM API 密钥" -ForegroundColor White
     Write-Host "  5. wecom.webhook_url        - 企业微信群机器人 Webhook" -ForegroundColor White
-    Write-Host "  6. mask_names               - 需要脱敏的同事姓名" -ForegroundColor White
+    Write-Host "  另外请将 monitor_api.enabled、llm.enabled 设为 true，wecom.dry_run 设为 false" -ForegroundColor Yellow
 }
 
 # 5. 运行测试
@@ -59,5 +63,5 @@ Write-Host "快速验证（dry-run 模式）:" -ForegroundColor Yellow
 Write-Host "  .\.venv\Scripts\python.exe -m alert_ai_assistant run-once --config config.yaml --dry-run" -ForegroundColor White
 Write-Host ""
 Write-Host "配置定时任务（每小时准点推送）:" -ForegroundColor Yellow
-Write-Host "  schtasks /create /tn ""alert-ai-assistant"" /tr ""$ProjectRoot\.venv\Scripts\python.exe -m alert_ai_assistant run-once --config $ProjectRoot\config.yaml"" /sc hourly /mo 1 /st HH:00 /f" -ForegroundColor White
+Write-Host "  schtasks /create /tn `"alert-ai-assistant`" /tr `"$ProjectRoot\.venv\Scripts\python.exe -m alert_ai_assistant run-once --config $ProjectRoot\config.yaml`" /sc hourly /mo 1 /st HH:00 /f" -ForegroundColor White
 Write-Host "  （将 HH 替换为当前小时+1，例如当前10点则填11）" -ForegroundColor White
