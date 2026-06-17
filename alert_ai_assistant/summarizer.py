@@ -119,15 +119,6 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
     bw_processing, det_processing = _split_bw(processing)
     bw_ended, det_ended = _split_bw(ended)
 
-    # Cap detail alerts to avoid oversized prompts during alert spikes.
-    detail_limit = max(1, config.llm.max_prompt_alerts_per_bucket)
-    det_unhandled = det_unhandled[:detail_limit]
-    det_ended = det_ended[:detail_limit]
-    det_processing = det_processing[:detail_limit]
-
-    unhandled_omitted = max(0, len([a for a in unhandled if not _is_bandwidth_alert(a)]) - detail_limit)
-    ended_omitted = max(0, len([a for a in ended if not _is_bandwidth_alert(a)]) - detail_limit)
-
     def brief(alert):
         interface = extract_interface(f"{alert.title}\n{alert.content}\n{alert.raw_payload}")
         person = _collect_person(alert)
@@ -161,10 +152,6 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
             "未处理": len(bw_unhandled),
             "已结束": len(bw_ended),
             "处理中": len(bw_processing),
-        },
-        "截断说明": {
-            "未处理截断数": unhandled_omitted,
-            "已结束截断数": ended_omitted,
         },
     }
     payload_json = json.dumps(payload, ensure_ascii=False, indent=2)
