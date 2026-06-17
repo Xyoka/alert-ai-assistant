@@ -260,15 +260,18 @@ def _extract_content(block: str, lines: list[str]) -> str:
 
 def _extract_items(data: Any) -> Iterable[dict[str, Any]]:
     if isinstance(data, list):
-        return [item for item in data if isinstance(item, dict)]
+        return [item for item in data if isinstance(item, dict) and item]
     if not isinstance(data, dict):
         return []
     for key in ("data", "items", "list", "rows", "results"):
         value = data.get(key)
         if isinstance(value, list):
-            return [item for item in value if isinstance(item, dict)]
+            return [item for item in value if isinstance(item, dict) and item]
         if isinstance(value, dict):
             return list(_extract_items(value))
+    # 过滤掉空对象 {} — API 某些无数据窗口返回占位空对象
+    if not data:
+        return []
     return [data]
 
 
