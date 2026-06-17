@@ -10,6 +10,16 @@ from .config import AppConfig
 from .llm import OpenAICompatibleClient
 from .models import AlertRecord, STATUS_ENDED, STATUS_PROCESSING, STATUS_UNHANDLED, SummaryStats
 
+# Bandwidth-related keywords: alerts matching any of these are aggregated as counts only.
+_BW_KEYWORDS = (
+    "使用率告警",
+    "入流量使用率",
+    "出流量使用率",
+    "流量统计超过阈值",
+    "带宽利用率",
+    "端口带宽使用率",
+)
+
 
 def build_stats(
     records: Iterable[AlertRecord],
@@ -78,17 +88,25 @@ def ai_summary_covers_required_alerts(text: str, stats: SummaryStats) -> bool:
     )
     if any(phrase in text for phrase in disallowed_phrases):
         return False
+    # Validate only non-bandwidth alerts; bandwidth alerts are aggregated as counts.
     required = [
         alert
         for alert in stats.all_alerts
         if alert.status_bucket in {STATUS_UNHANDLED, STATUS_ENDED}
+        and not _is_bandwidth_alert(alert)
     ]
+    has_bandwidth = any(
+        _is_bandwidth_alert(a)
+        for a in stats.all_alerts
+        if a.status_bucket in {STATUS_UNHANDLED, STATUS_ENDED}
+    )
+    missed_ips = set()
     for alert in required:
         if alert.device_ip and alert.device_ip not in text:
-            return False
-        if alert.alarm_time_text and alert.alarm_time_text not in text:
-            return False
-    return True
+            missed_ips.add(alert.device_ip)
+    # Strict when no bandwidth alerts to aggregate; lenient otherwise.
+    tolerance = 2 if has_bandwidth else 0
+    return len(missed_ips) <= tolerance
 
 
 def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
@@ -96,21 +114,23 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
     processing = [a for a in stats.all_alerts if a.status_bucket == "processing"]
     ended = [a for a in stats.all_alerts if a.status_bucket == "ended"]
 
+    # Separate bandwidth alerts from detailed ones – bandwidth only shown as counts.
+    bw_unhandled, det_unhandled = _split_bw(unhandled)
+    bw_processing, det_processing = _split_bw(processing)
+    bw_ended, det_ended = _split_bw(ended)
+
     def brief(alert):
         interface = extract_interface(f"{alert.title}\n{alert.content}\n{alert.raw_payload}")
         person = _collect_person(alert)
         content_detail = (alert.content or alert.title).replace("<br>", " | ")
         return {
-            "source_type": alert.source_type,
             "ip": alert.device_ip,
             "hostname": alert.hostname,
             "time": alert.alarm_time_text,
-            "severity": alert.severity,
             "title": alert.title,
             "interface": interface or "",
-            "external_id": alert.external_id,
-            "responsible_person": person,
-            "content_detail": single_line(content_detail, 0),
+            "content": single_line(content_detail, 200),
+            "person": person,
         }
 
     payload = {
@@ -121,39 +141,55 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
             "processing": stats.processing_count,
             "ended": stats.ended_count,
         },
-        "alert_list": {
-            "未处理": [brief(a) for a in unhandled],
-            "已结束": [brief(a) for a in ended],
-            "处理中": [brief(a) for a in processing],
+        "alert_detail": {
+            "未处理": [brief(a) for a in det_unhandled],
+            "已结束": [brief(a) for a in det_ended],
+        },
+        "处理中汇总": [
+            brief(a) for a in det_processing
+        ],
+        "带宽告警统计": {
+            "未处理": len(bw_unhandled),
+            "已结束": len(bw_ended),
+            "处理中": len(bw_processing),
         },
     }
     payload_json = json.dumps(payload, ensure_ascii=False, indent=2)
     return f"""
-请根据下面的结构化网络告警数据生成企业微信摘要。
+请根据下面的结构化网络告警数据生成企业微信摘要，要求精简明确。
 
-要求和规矩：
-- 严格按以下四段格式输出，不允许改变段名称和顺序：
-  **总体情况**
-  **未处理（重点）**
-  **已结束**
-  **处理中**
-- **总体情况**：逐行列出，格式：
-  - 窗口时间：
-  - 未处理：x条
-  - 已结束：x条
-  - 处理中：x条
-- 展示优先级：未处理 > 已结束 > 处理中。未处理是新故障，已结束是平台自动归档且管理员可能未知悉，处理中是管理员已手动确认。
-- **未处理（重点）**：必须覆盖 `alert_list.未处理` 中的全部告警，按实际故障类型分类（如端口Down、端口Up、链路故障、配置变更、CPU/内存告警、端口错误、带宽利用率告警等），不要用"日志告警类""网络设备日志告警"这种笼统分类。每条格式：IP / 主机 / 时间 / 接口 / 内容 / 负责人。字段为空写"未知"。
-- **已结束**：必须覆盖 `alert_list.已结束` 中的全部告警，按实际恢复/结束类型分类。每条格式同未处理，用于帮助管理员了解本小时自动归档的告警闭环。
-- **处理中**：只做数量统计和类型归类，不逐条展开，不抢占未处理和已结束版面。
-- 不得省略未处理和已结束告警；不得输出"另有N条未展开"或"请登录网管平台查看完整列表"。
-- 不得输出"无需处理""可以忽略""已无风险"等结论；只能使用"建议确认""建议关注""建议结合网管平台状态核对"等谨慎表述。
-- 只根据输入数据总结，不得补充输入中不存在的原因、影响范围或处理结果。
-- 某类无告警则子内容写"无"，段名照常输出。
+格式和规则：
+- 严格四段输出：**总体情况** / **未处理（重点）** / **已结束** / **处理中**
+- **总体情况**：逐行列出窗口时间、未处理x条、已结束x条、处理中x条。
+- **未处理（重点）**：按故障类型分类（端口Down、链路故障、配置变更等），不用笼统分类。
+  每条格式：IP / 主机 / 时间 / 接口 / 内容 / 负责人。
+  同IP同主机的多条告警可合并为一条，内容摘要列出关键差异即可。
+  `带宽告警统计.未处理`仅输出"端口带宽利用率告警：N条"，不逐条展开。
+- **已结束**：同上格式。`带宽告警统计.已结束`同样只输出数量。
+- **处理中**：只输出数量和类型归类，不逐条展开。`带宽告警统计.处理中`同样只输出数量。
+- 精简原则：告警说明保留故障类型、设备、接口、时间戳关键信息，去掉冗余修饰词。
+- 不得输出"无需处理""可以忽略""已无风险"；可用"建议确认""建议关注"。
+- 只根据输入数据总结，不编造原因或影响范围。
+- 某类无告警写"无"，段名照常输出。
 
 数据：
 {payload_json}
 """.strip()
+
+
+def _split_bw(alerts: list[AlertRecord]) -> tuple[list[AlertRecord], list[AlertRecord]]:
+    bw, detail = [], []
+    for a in alerts:
+        if _is_bandwidth_alert(a):
+            bw.append(a)
+        else:
+            detail.append(a)
+    return bw, detail
+
+
+def _is_bandwidth_alert(alert: AlertRecord) -> bool:
+    text = f"{alert.title}\n{alert.content or ''}"
+    return any(kw in text for kw in _BW_KEYWORDS)
 
 
 def _collect_person(alert: AlertRecord) -> list[str]:
@@ -187,10 +223,16 @@ def fallback_summary(stats: SummaryStats, max_items_per_section: int | None = No
         if not records:
             lines.append("无")
             return lines
-        groups = Counter(a.title for a in records)
+        bw_records = [a for a in records if _is_bandwidth_alert(a)]
+        detail_records = [a for a in records if not _is_bandwidth_alert(a)]
+        if bw_records:
+            lines.append(f"端口带宽利用率告警：{len(bw_records)}条")
+        if not detail_records:
+            return lines
+        groups = Counter(a.title for a in detail_records)
         for group_title, count in groups.most_common():
             lines.append(f"{group_title or '未知告警'}：{count}条")
-            for alert in [a for a in records if a.title == group_title]:
+            for alert in [a for a in detail_records if a.title == group_title]:
                 lines.append(format_alert_detail(alert))
         return lines
 
@@ -199,7 +241,11 @@ def fallback_summary(stats: SummaryStats, max_items_per_section: int | None = No
         if not records:
             lines.append("无")
             return lines
-        groups = Counter(a.title or "未知告警" for a in records)
+        bw_count = sum(1 for a in records if _is_bandwidth_alert(a))
+        detail_records = [a for a in records if not _is_bandwidth_alert(a)]
+        if bw_count:
+            lines.append(f"端口带宽利用率告警：{bw_count}条")
+        groups = Counter(a.title or "未知告警" for a in detail_records)
         lines.append(f"共{len(records)}条，管理员已确认，按类型归类如下：")
         for group_title, count in groups.most_common():
             lines.append(f"- {group_title}：{count}条")

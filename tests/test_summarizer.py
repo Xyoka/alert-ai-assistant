@@ -216,4 +216,5 @@ def test_llm_prompt_includes_all_alert_details_without_omitted_bucket():
     for index in range(5):
         assert f"10.0.0.{index}" in prompt
     assert '"未展开明细数"' not in prompt
-    assert "未处理 > 已结束 > 处理中" in prompt
+    # Prompt now uses concise format without priority hint line.
+    assert "**总体情况**" in prompt
