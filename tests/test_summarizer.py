@@ -160,11 +160,16 @@ def test_fallback_summary_expands_all_unhandled_and_ended_alerts():
     )
     stats = build_stats(records, start, end, [], 10)
 
-    text = fallback_summary(stats, max_items_per_section=2)
-
+    # Without limit: all alerts appear.
+    text = fallback_summary(stats, max_items_per_section=None)
     assert text.count("IP：10.0.0.") == 5
     assert "IP：10.0.1.1" in text
     assert "另有" not in text
+
+    # With limit: only N items shown, truncation note present.
+    text_limited = fallback_summary(stats, max_items_per_section=2)
+    assert text_limited.count("IP：10.0.0.") == 2
+    assert "另有" in text_limited
     assert text.index("**未处理（重点）**") < text.index("**已结束**") < text.index("**处理中**")
 
 

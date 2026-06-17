@@ -115,11 +115,11 @@ notepad config.yaml
 
 ```yaml
 sid: "你的SID"
-sid_param_name: "token"
+sid_param_name: "secret"
 ```
 
 把 `你的SID` 替换为技术人员给你的凭证码（SID）。
-当前网管接口示例使用 `token=SID`，所以 `sid_param_name` 保持 `token` 即可；如果实际接口字段名不同，再按接口文档调整。
+当前网管接口认证参数名为 `secret`，`sid_param_name` 保持 `secret` 即可；如果实际接口字段名不同，再按接口文档调整。
 
 #### ② 填写你的姓名
 

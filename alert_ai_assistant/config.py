@@ -26,7 +26,7 @@ class LLMConfig:
     model: str = ""
     timeout_seconds: int = 60
     max_focus_alerts: int = 10
-    max_prompt_alerts_per_bucket: int = 80
+    max_prompt_alerts_per_bucket: int = 80  # deprecated: no longer used after truncation removed
 
 
 @dataclass(slots=True)

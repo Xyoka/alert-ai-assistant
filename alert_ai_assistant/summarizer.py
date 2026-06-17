@@ -229,11 +229,21 @@ def fallback_summary(stats: SummaryStats, max_items_per_section: int | None = No
             lines.append(f"端口带宽利用率告警：{len(bw_records)}条")
         if not detail_records:
             return lines
+        # Apply per-section limit to avoid oversized fallback messages.
+        limit = max_items_per_section
+        shown = 0
         groups = Counter(a.title for a in detail_records)
         for group_title, count in groups.most_common():
+            if limit and shown >= limit:
+                break
             lines.append(f"{group_title or '未知告警'}：{count}条")
             for alert in [a for a in detail_records if a.title == group_title]:
+                if limit and shown >= limit:
+                    break
                 lines.append(format_alert_detail(alert))
+                shown += 1
+        if limit and shown < len(detail_records):
+            lines.append(f"另有{len(detail_records) - shown}条未展开，请登录网管平台查看完整列表。")
         return lines
 
     def _processing_section(records):

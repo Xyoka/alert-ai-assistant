@@ -3,15 +3,20 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 import json
+import logging
 from pathlib import Path
 import re
 import ssl
+import time
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .config import AppConfig, MonitorApiConfig
 from .models import AlertRecord, STATUS_ENDED, STATUS_PROCESSING, STATUS_UNHANDLED, json_dumps
+
+
+_logger = logging.getLogger(__name__)
 
 
 BLOCK_RE = re.compile(r"(?=^网络运维管理平台\s+\d+/\d+\s+\d+:\d+:\d+\s*$)", re.MULTILINE)
@@ -155,11 +160,47 @@ class MonitorApiSource:
             self.config.sid_param_name or "secret": self.config.sid,
         }
         url = self._build_search_url(params)
-        request = Request(url, headers={"Accept": "application/json"})
+        req = Request(url, headers={"Accept": "application/json"})
         ssl_ctx = ssl._create_unverified_context()
-        with urlopen(request, timeout=self.config.timeout_seconds, context=ssl_ctx) as response:
-            body = response.read().decode("utf-8")
+
+        # Retry on transient network errors (up to 2 retries with backoff).
+        max_attempts = 3
+        last_error: Exception | None = None
+        for attempt in range(max_attempts):
+            try:
+                with urlopen(req, timeout=self.config.timeout_seconds, context=ssl_ctx) as response:
+                    body = response.read().decode("utf-8")
+                break
+            except OSError as exc:
+                last_error = exc
+                if attempt < max_attempts - 1:
+                    delay = (attempt + 1) * 2.0
+                    _logger.warning(
+                        "Monitor API network error (bucket=%s offset=%s attempt=%s/%s): %s, retrying in %.1fs",
+                        bucket, offset, attempt + 1, max_attempts, exc, delay,
+                    )
+                    time.sleep(delay)
+                else:
+                    _logger.warning(
+                        "Monitor API request failed after %s attempts (bucket=%s offset=%s): %s",
+                        max_attempts, bucket, offset, exc,
+                    )
+                    return []
+        else:
+            _logger.warning(
+                "Monitor API request exhausted retries (bucket=%s offset=%s): %s",
+                bucket, offset, last_error,
+            )
+            return []
+
         data = json.loads(body)
+        # Detect API-level errors (e.g. SID expiration) and surface them.
+        if isinstance(data, dict):
+            code = data.get("code")
+            if code is not None and code != 0:
+                msg = data.get("message", "")
+                _logger.warning("Monitor API returned error code=%s message=%s (bucket=%s offset=%s)", code, msg, bucket, offset)
+                return []
         return list(_extract_items(data))
 
     def _build_search_url(self, params: dict[str, Any]) -> str:
