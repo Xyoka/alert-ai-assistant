@@ -19,8 +19,8 @@ monitor_api:
   base_url: "https://10.50.132.120"
   search_path: "/api/monitor/alarm/search"
   sid: ""
-  # 你提供的网管接口示例使用 token=SID；如实际接口字段名不同可改成 secret 等。
-  sid_param_name: "token"
+  # 网管接口认证参数名，常见为 secret 或 token。
+  sid_param_name: "secret"
   owner_instance_name: "你的负责人姓名"
   timeout_seconds: 30
   # 仅用于已结束告警的 create_time 回溯查询；未处理/处理中只查摘要窗口内告警。

@@ -148,7 +148,7 @@ class MonitorApiSource:
             "offset": offset,
             "limit": limit,
             "search_unit_list": json.dumps(units, ensure_ascii=False, separators=(",", ":")),
-            self.config.sid_param_name or "token": self.config.sid,
+            self.config.sid_param_name or "secret": self.config.sid,
         }
         url = self._build_search_url(params)
         request = Request(url, headers={"Accept": "application/json"})

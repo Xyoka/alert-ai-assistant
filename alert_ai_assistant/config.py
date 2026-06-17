@@ -49,7 +49,7 @@ class MonitorApiConfig:
     base_url: str = ""
     search_path: str = "/api/monitor/alarm/search"
     sid: str = ""
-    sid_param_name: str = "token"
+    sid_param_name: str = "secret"
     owner_instance_name: str = ""
     timeout_seconds: int = 30
     active_lookback_days: int = 5
