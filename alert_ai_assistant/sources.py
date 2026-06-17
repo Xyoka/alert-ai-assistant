@@ -73,9 +73,9 @@ class MonitorApiSource:
         now = datetime.now()
         active_start = now - timedelta(days=self.config.active_lookback_days)
         records: list[AlertRecord] = []
-        # Active alarms must reflect the current platform view, not only this hour.
-        records.extend(self.fetch_bucket(STATUS_UNHANDLED, active_start, now))
-        records.extend(self._fetch_processing_window(STATUS_PROCESSING, active_start, now))
+        # Unhandled/processing alarms intentionally use only the target hour.
+        records.extend(self.fetch_bucket(STATUS_UNHANDLED, window_start, window_end))
+        records.extend(self._fetch_processing_window(STATUS_PROCESSING, window_start, window_end))
         # Ended: broader create_time range, filter by recovery/update time within the target hour.
         ended_payloads = self._request_bucket(STATUS_ENDED, active_start, now)
         for payload in ended_payloads:
@@ -85,7 +85,7 @@ class MonitorApiSource:
         return records
 
     def _fetch_processing_window(self, bucket: str, start: datetime, end: datetime) -> list[AlertRecord]:
-        """Fetch processing alarms over the active lookback range."""
+        """Fetch processing alarms over the requested time range."""
         units = [dict(item) for item in self.config.bucket_search_units.get(bucket, [])]
         units.append({
             "attr": "create_time",

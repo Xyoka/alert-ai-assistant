@@ -23,6 +23,7 @@ monitor_api:
   sid_param_name: "token"
   owner_instance_name: "你的负责人姓名"
   timeout_seconds: 30
+  # 仅用于已结束告警的 create_time 回溯查询；未处理/处理中只查摘要窗口内告警。
   active_lookback_days: 5
   # 告警很多时自动分页，避免单次最多1000条导致漏拉。
   page_limit: 1000

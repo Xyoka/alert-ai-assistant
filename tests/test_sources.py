@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from urllib.parse import parse_qs, urlparse
 
 from alert_ai_assistant.config import MonitorApiConfig
@@ -34,17 +34,17 @@ def test_monitor_api_stops_when_api_repeats_same_page():
     assert source.calls == [(0, 2), (2, 2)]
 
 
-def test_monitor_fetches_active_alarms_with_lookback_not_hour_window():
+def test_monitor_fetches_unhandled_and_processing_in_target_hour_only():
     source = RecordingMonitorApiSource()
-    window_start = datetime.now() - timedelta(hours=1)
-    window_end = datetime.now()
+    window_start = datetime(2026, 5, 8, 17, 0, 0)
+    window_end = datetime(2026, 5, 8, 17, 59, 59)
 
     source.fetch_for_summary(window_start, window_end)
 
     unhandled = source.ranges["unhandled"][0]
     processing = source.ranges["processing"][0]
-    assert unhandled[0] < window_start - timedelta(days=1)
-    assert processing[0] < window_start - timedelta(days=1)
+    assert unhandled == (window_start, window_end)
+    assert processing == (window_start, window_end)
 
 
 def test_payload_to_record_falls_back_to_create_time_when_last_alarm_time_missing():
