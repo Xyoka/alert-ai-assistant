@@ -9,6 +9,7 @@ from typing import Iterable
 from .config import AppConfig
 from .llm import OpenAICompatibleClient
 from .models import AlertRecord, STATUS_ENDED, STATUS_PROCESSING, STATUS_UNHANDLED, SummaryStats
+from .sanitizer import sanitize_for_config
 
 
 def build_stats(
@@ -60,12 +61,44 @@ def generate_summary(
     config: AppConfig,
     llm_client: OpenAICompatibleClient | None = None,
 ) -> tuple[str, bool]:
-    prompt = build_llm_prompt(stats, config)
+    prompt = sanitize_for_config(build_llm_prompt(stats, config), config)
     client = llm_client or OpenAICompatibleClient(config.llm)
     ai_text = client.complete(prompt) if client else None
     if ai_text:
-        return ai_text, True
-    return fallback_summary(stats), False
+        return sanitize_for_config(ai_text, config), True
+    return sanitize_for_config(fallback_summary(stats), config), False
+
+
+def build_reference_alerts(stats: SummaryStats, max_items: int) -> list[AlertRecord]:
+    candidates = list(stats.focus_alerts)
+    if len(candidates) < max_items:
+        existing = {alert.content_hash for alert in candidates}
+        for alert in stats.all_alerts:
+            if alert.status_bucket not in {STATUS_UNHANDLED, STATUS_PROCESSING}:
+                continue
+            if alert.content_hash in existing:
+                continue
+            candidates.append(alert)
+            existing.add(alert.content_hash)
+            if len(candidates) >= max_items:
+                break
+    return candidates[:max_items]
+
+
+def append_reference_section(summary_text: str, reference_alerts: list[AlertRecord]) -> str:
+    if not reference_alerts:
+        return summary_text
+    lines = [
+        "",
+        "**可追问告警**",
+    ]
+    for index, alert in enumerate(reference_alerts, start=1):
+        title = single_line(alert.title or alert.content, 70)
+        lines.append(
+            f"A{index}：{alert.device_ip or '-'} / {alert.hostname or '-'} / "
+            f"{alert.alarm_time_text or '-'} / {title}"
+        )
+    return f"{summary_text.rstrip()}\n" + "\n".join(lines)
 
 
 def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
@@ -80,7 +113,6 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
 
     def brief(alert):
         interface = extract_interface(f"{alert.title}\n{alert.content}\n{alert.raw_payload}")
-        person = _collect_person(alert)
         content_detail = (alert.content or alert.title).replace("<br>", " | ")
         content_snippet = single_line(content_detail, 250)
         return {
@@ -88,7 +120,6 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
             "time": alert.alarm_time_text,
             "title": alert.title,
             "interface": interface or "",
-            "负责人": person,
             "content_detail": content_snippet,
         }
 
@@ -136,7 +167,7 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
   - 未处理：x条
   - 处理中：x条
   - 已结束：x条
-- **未处理（重点）**：观察每条告警的 content_detail，按**实际故障类型**分类（如端口Down、端口Up、链路故障、配置变更、CPU/内存告警、端口错误等），不要用"日志告警类""网络设备日志告警"这种笼统分类。子类名为纯文本不加粗。每条格式：IP / 时间 / 简要内容 / 负责人。`带宽利用率告警`字段按桶统计了数量，属于哪个桶就加到哪个段末尾（格式："端口带宽利用率告警：N条"），不逐条展开。
+- **未处理（重点）**：观察每条告警的 content_detail，按**实际故障类型**分类（如端口Down、端口Up、链路故障、配置变更、CPU/内存告警、端口错误等），不要用"日志告警类""网络设备日志告警"这种笼统分类。子类名为纯文本不加粗。每条格式：IP / 时间 / 简要内容。不要输出负责人姓名或账号。`带宽利用率告警`字段按桶统计了数量，属于哪个桶就加到哪个段末尾（格式："端口带宽利用率告警：N条"），不逐条展开。
 - **处理中**：格式同上。带宽利用率告警同样处理。
 - **已结束**：格式同上。带宽利用率告警同样处理。
 - 某类无告警则子内容写"无"，段名照常输出。
@@ -191,9 +222,7 @@ def fallback_summary(stats: SummaryStats) -> str:
                 for alert in [a for a in records if a.title == group_title]:
                     interface = extract_interface(f"{alert.title}\n{alert.content}\n{alert.raw_payload}")
                     intf_text = f" ({interface})" if interface else ""
-                    person = "、".join(_collect_person(alert))
-                    person_text = f" / {person}" if person else ""
-                    lines.append(f"- {alert.device_ip} / {alert.alarm_time_text}{intf_text}{person_text}")
+                    lines.append(f"- {alert.device_ip} / {alert.alarm_time_text}{intf_text}")
         return lines
 
     result = [

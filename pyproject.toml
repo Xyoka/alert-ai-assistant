@@ -5,6 +5,7 @@ description = "Lightweight WeCom network alarm AI summary assistant."
 requires-python = ">=3.11"
 dependencies = [
     "PyYAML>=6.0",
+    "wecom-aibot-sdk>=1.0.8,<2",
 ]
 
 [project.optional-dependencies]

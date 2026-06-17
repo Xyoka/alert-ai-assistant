@@ -2,12 +2,21 @@ from datetime import datetime
 
 from alert_ai_assistant.config import AppConfig
 from alert_ai_assistant.models import AlertRecord
-from alert_ai_assistant.summarizer import build_stats, fallback_summary, generate_summary
+from alert_ai_assistant.summarizer import build_llm_prompt, build_stats, fallback_summary, generate_summary
 
 
 class FailingLLM:
     def complete(self, prompt: str):
         return None
+
+
+class EchoLLM:
+    def __init__(self):
+        self.prompt = ""
+
+    def complete(self, prompt: str):
+        self.prompt = prompt
+        return "负责人：张三(zhangsan)\n建议确认张三"
 
 
 def test_no_alarm_summary():
@@ -66,3 +75,49 @@ def test_generate_summary_falls_back_when_llm_fails():
     assert "**总体情况**" in text
     assert "0条" in text
 
+
+def test_summary_prompt_and_output_are_sanitized():
+    start = datetime(2026, 5, 11, 10)
+    end = datetime(2026, 5, 11, 10, 59, 59)
+    config = AppConfig()
+    config.mask_names = ["张三"]
+    record = AlertRecord(
+        source_type="snmp",
+        status_bucket="unhandled",
+        device_ip="10.0.0.1",
+        hostname="SW-A_张三",
+        alarm_time=start,
+        title="端口连接状态告警",
+        content="Ethernet1/42 down",
+        raw_payload="负责人：张三(zhangsan)",
+    )
+    stats = build_stats([record], start, end, [], 10)
+    llm = EchoLLM()
+
+    text, ai_used = generate_summary(stats, config, llm_client=llm)
+
+    assert ai_used
+    assert "张三" not in llm.prompt
+    assert "zhangsan" not in llm.prompt
+    assert "张三" not in text
+    assert "zhangsan" not in text
+    assert "<已脱敏>" in text
+
+
+def test_llm_prompt_does_not_include_responsible_person_field():
+    start = datetime(2026, 5, 11, 10)
+    end = datetime(2026, 5, 11, 10, 59, 59)
+    config = AppConfig()
+    record = AlertRecord(
+        source_type="snmp",
+        status_bucket="unhandled",
+        device_ip="10.0.0.1",
+        hostname="SW-A_张三",
+        alarm_time=start,
+        title="端口连接状态告警",
+        content="Ethernet1/42 down",
+    )
+
+    prompt = build_llm_prompt(build_stats([record], start, end, [], 10), config)
+
+    assert '"负责人"' not in prompt

@@ -6,6 +6,9 @@ lock_file: data/run.lock
 log_file: logs/alert_ai_assistant.log
 timezone: Asia/Shanghai
 log_level: INFO
+# summary_only: 只推送摘要，保持当前稳定版本行为。
+# agent: 摘要优先由企业微信智能机器人发送，并支持对话问答；webhook 仅作摘要冷备。
+app_mode: summary_only
 
 source:
   # Use mock_text for local development, monitor_api for the company network.
@@ -79,10 +82,35 @@ wecom:
   msg_type: markdown
   dry_run: true
 
+wecom_intelligent_bot:
+  enabled: false
+  bot_id: ""
+  secret: ""
+  # 智能机器人主动发送摘要的目标。单聊填 userid，群聊填对应 chatid。
+  summary_target_id: ""
+  max_message_chars: 3500
+  dry_run: true
+
+agent:
+  # 问答默认只查最近 7 天本地告警数据。
+  history_days: 7
+  max_candidates: 5
+  outbox_poll_seconds: 5
+  summary_send_confirm_seconds: 15
+  # 智能机器人异常时，允许旧 webhook 兜底推送摘要。
+  fallback_webhook_enabled: true
+  recovery_notice_enabled: true
+  append_reference_section: true
+  summary_reference_limit: 8
+
 retention:
   raw_alert_days: 5
   summary_days: 15
   log_days: 15
+
+# 发送给 LLM、企业微信和智能机器人回复前会做兜底脱敏。
+# monitor_api.owner_instance_name 会自动加入脱敏名单；这里可额外填写其他姓名。
+mask_names: []
 
 low_priority_keywords:
   - "服务器接入交换机端口连接状态告警"
@@ -90,6 +118,3 @@ low_priority_keywords:
   - "使用率告警"
   - "入流量使用率"
   - "出流量使用率"
-
-# mask_names: []  # 脱敏功能已移除，此配置不再生效
-

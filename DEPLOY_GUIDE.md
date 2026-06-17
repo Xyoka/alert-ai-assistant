@@ -14,6 +14,7 @@
 5. [测试运行](#5-测试运行)
 6. [设置自动推送](#6-设置自动推送)
 7. [日常维护](#7-日常维护)
+8. [可选：启用智能 Agent 问答](#8-可选启用智能-agent-问答)
 
 ---
 
@@ -173,6 +174,18 @@ wecom:
 把 `你的key` 替换为技术人员给你的 Webhook key。  
 （获取方式见文末备注）
 
+#### ⑤ 确认脱敏名单
+
+找到：
+
+```yaml
+mask_names:
+  - "你的姓名"
+```
+
+这里填写后，程序在发送给 AI、企业微信和智能机器人回复前会自动脱敏。  
+`monitor_api.owner_instance_name` 也会自动加入脱敏名单。
+
 ### 4.3 保存文件
 
 按 `Ctrl + S` 保存，关闭记事本。
@@ -284,13 +297,108 @@ schtasks /create /tn "alert-ai-assistant" /tr "D:\alert-ai-assistant\.venv\Scrip
 
 ---
 
+## 8. 可选：启用智能 Agent 问答
+
+默认部署是 `summary_only` 模式：只按小时推送告警摘要。  
+如果你需要在企业微信里继续追问告警详情，例如“这条告警报了几次、持续多久、怎么处理”，再启用本节。
+
+### 8.1 修改配置
+
+打开 `config.yaml`：
+
+```powershell
+notepad config.yaml
+```
+
+确认或新增以下配置：
+
+```yaml
+app_mode: agent
+
+wecom:
+  enabled: true
+  webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的key"
+  dry_run: false
+
+wecom_intelligent_bot:
+  enabled: true
+  bot_id: "企业微信智能机器人 Bot ID"
+  secret: "企业微信智能机器人 Secret"
+  summary_target_id: "摘要发送目标，单聊填 userid，群聊填 chatid"
+  dry_run: false
+
+agent:
+  history_days: 7
+  fallback_webhook_enabled: true
+  recovery_notice_enabled: true
+
+mask_names:
+  - "你的姓名"
+```
+
+说明：
+- `wecom_intelligent_bot` 是新的智能机器人，用于摘要推送和问答。
+- `wecom` 是原来的群聊 webhook，只在智能机器人异常时兜底推送摘要。
+- `summary_target_id` 单聊填用户 `userid`，群聊填群聊 `chatid`。
+
+### 8.2 检查配置
+
+```powershell
+.\.venv\Scripts\python.exe -m alert_ai_assistant check-config --config config.yaml
+```
+
+如果提示缺少 `bot_id`、`secret` 或 `summary_target_id`，按提示补齐后再继续。
+
+查看本地运行状态：
+
+```powershell
+.\.venv\Scripts\python.exe -m alert_ai_assistant status --config config.yaml
+```
+
+### 8.3 启动智能机器人服务
+
+先手动启动一次：
+
+```powershell
+.\.venv\Scripts\python.exe -m alert_ai_assistant serve-wecom-bot --config config.yaml
+```
+
+保持这个窗口不关闭，然后在企业微信里给智能机器人发送：
+
+```text
+A1 这条告警报了几次？
+```
+
+如果机器人能回复，说明问答链路可用。
+
+### 8.4 设置开机或登录后自动运行
+
+Agent 模式需要两个任务：
+
+1. 原来的每小时 `run-once` 任务继续保留，负责拉取告警并生成摘要。
+2. 新增一个 `serve-wecom-bot` 长运行任务，负责智能机器人收发消息。
+
+创建登录后启动任务：
+
+```powershell
+schtasks /create /tn "alert-ai-assistant-agent" /tr "D:\alert-ai-assistant\.venv\Scripts\python.exe -m alert_ai_assistant serve-wecom-bot --config D:\alert-ai-assistant\config.yaml" /sc onlogon /f
+```
+
+同样需要在任务计划程序中把“起始于(可选)”设置为项目目录，例如 `D:\alert-ai-assistant`。
+
+### 8.5 异常兜底规则
+
+- 正常情况下：摘要推送和问答都由智能机器人完成。
+- 智能机器人异常：原 webhook 兜底推送摘要，问答暂不可用。
+- 智能机器人恢复：webhook 已兜底成功的摘要不补发；如果智能机器人和 webhook 都失败，只发送一条聚合恢复通知。
+
 ---
 
-## 8. 个性化定制（进阶）
+## 9. 个性化定制（进阶）
 
 以下功能可以根据你的需求自行修改，建议由技术人员操作。
 
-### 8.1 修改摘要格式和内容
+### 9.1 修改摘要格式和内容
 
 摘要由 **AI（DeepSeek）** 生成，提示词（Prompt）决定了摘要的格式和内容。
 
@@ -313,7 +421,7 @@ schtasks /create /tn "alert-ai-assistant" /tr "D:\alert-ai-assistant\.venv\Scrip
 - 分类规则和故障类型列表
 - 带宽利用率告警的处理方式
 
-### 8.2 修改低优先级规则
+### 9.2 修改低优先级规则
 
 `config.yaml` 中的 `low_priority_keywords` 列表定义了哪些告警属于低优先级：
 
@@ -327,7 +435,7 @@ low_priority_keywords:
 
 想增加或减少低优先级类别，直接增删关键词即可。
 
-### 8.3 修改数据类型
+### 9.3 修改数据类型
 
 `config.yaml` 中的 `field_mapping` 定义了 API 字段与程序字段的对应关系：
 
@@ -344,7 +452,7 @@ field_mapping:
 
 如果网管平台 API 字段名有变化，修改此处即可。
 
-### 8.4 修改企业微信消息类型
+### 9.4 修改企业微信消息类型
 
 `config.yaml` 中的 `msg_type` 控制消息格式：
 
@@ -353,7 +461,7 @@ wecom:
   msg_type: markdown   # markdown：带格式（加粗、列表），text：纯文本
 ```
 
-### 8.5 修改数据保存天数
+### 9.5 修改数据保存天数
 
 `config.yaml` 中的 `retention` 控制数据保存时长：
 
@@ -364,7 +472,7 @@ retention:
   log_days: 15          # 运行日志保留天数
 ```
 
-### 8.6 修改时区
+### 9.6 修改时区
 
 `config.yaml` 中的 `timezone` 控制显示时区：
 

@@ -30,7 +30,7 @@ class OpenAICompatibleClient:
                         "输出要求：\n"
                         "1. 简短精炼：跳过详细信息，只精选少量最紧急的告警。\n"
                         "2. 分类聚合：同一IP同类告警合并描述。\n"
-                        "3. 标出负责人：每条告警括号标明负责人姓名。\n"
+                        "3. 脱敏要求：不要输出负责人姓名、账号或手机号。\n"
                         "4. 用 markdown 格式（**加粗**、- 列表），不加多余评论。"
                     ),
                 },
@@ -66,5 +66,4 @@ class OpenAICompatibleClient:
         if base_url.endswith("/v1"):
             return f"{base_url}/chat/completions"
         return f"{base_url}/v1/chat/completions"
-
 

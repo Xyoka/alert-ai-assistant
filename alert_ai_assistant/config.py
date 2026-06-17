@@ -40,6 +40,28 @@ class WeComConfig:
 
 
 @dataclass(slots=True)
+class WeComIntelligentBotConfig:
+    enabled: bool = False
+    bot_id: str = ""
+    secret: str = ""
+    summary_target_id: str = ""
+    max_message_chars: int = 3500
+    dry_run: bool = True
+
+
+@dataclass(slots=True)
+class AgentConfig:
+    history_days: int = 7
+    max_candidates: int = 5
+    outbox_poll_seconds: int = 5
+    summary_send_confirm_seconds: int = 15
+    fallback_webhook_enabled: bool = True
+    recovery_notice_enabled: bool = True
+    append_reference_section: bool = True
+    summary_reference_limit: int = 8
+
+
+@dataclass(slots=True)
 class MonitorApiConfig:
     enabled: bool = False
     base_url: str = ""
@@ -68,6 +90,7 @@ class DataSourceConfig:
 
 @dataclass(slots=True)
 class AppConfig:
+    app_mode: str = "summary_only"
     database_path: str = "data/alerts.db"
     lock_file: str = "data/run.lock"
     log_file: str = "logs/alert_ai_assistant.log"
@@ -77,7 +100,10 @@ class AppConfig:
     monitor_api: MonitorApiConfig = field(default_factory=MonitorApiConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     wecom: WeComConfig = field(default_factory=WeComConfig)
+    wecom_intelligent_bot: WeComIntelligentBotConfig = field(default_factory=WeComIntelligentBotConfig)
+    agent: AgentConfig = field(default_factory=AgentConfig)
     retention: RetentionConfig = field(default_factory=RetentionConfig)
+    mask_names: list[str] = field(default_factory=list)
     low_priority_keywords: list[str] = field(default_factory=lambda: [
         "服务器接入交换机端口连接状态告警",
         "端口连接状态告警",
@@ -102,6 +128,7 @@ def load_config(path: str | Path | None) -> AppConfig:
 
 def _build_config(data: dict[str, Any]) -> AppConfig:
     return AppConfig(
+        app_mode=str(data.get("app_mode", "summary_only")),
         database_path=str(data.get("database_path", "data/alerts.db")),
         lock_file=str(data.get("lock_file", "data/run.lock")),
         log_file=str(data.get("log_file", "logs/alert_ai_assistant.log")),
@@ -111,7 +138,10 @@ def _build_config(data: dict[str, Any]) -> AppConfig:
         monitor_api=MonitorApiConfig(**_section(data, "monitor_api")),
         llm=LLMConfig(**_section(data, "llm")),
         wecom=WeComConfig(**_section(data, "wecom")),
+        wecom_intelligent_bot=WeComIntelligentBotConfig(**_section(data, "wecom_intelligent_bot")),
+        agent=AgentConfig(**_section(data, "agent")),
         retention=RetentionConfig(**_section(data, "retention")),
+        mask_names=_string_list(data.get("mask_names", [])),
         low_priority_keywords=list(data.get("low_priority_keywords", [
             "服务器接入交换机端口连接状态告警",
             "端口连接状态告警",
@@ -128,9 +158,29 @@ def _section(data: dict[str, Any], name: str) -> dict[str, Any]:
     return value
 
 
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    raise ValueError("Config value must be a list or comma-separated string.")
+
+
 def _apply_env_overrides(config: AppConfig) -> None:
     config.monitor_api.sid = os.getenv("ALERT_AI_MONITOR_SID", config.monitor_api.sid)
     config.llm.api_key = os.getenv("ALERT_AI_LLM_API_KEY", config.llm.api_key)
     config.wecom.token = os.getenv("ALERT_AI_WECOM_TOKEN", config.wecom.token)
     config.wecom.webhook_url = os.getenv("ALERT_AI_WECOM_WEBHOOK_URL", config.wecom.webhook_url)
-
+    config.wecom_intelligent_bot.bot_id = os.getenv(
+        "ALERT_AI_WECOM_BOT_ID",
+        config.wecom_intelligent_bot.bot_id,
+    )
+    config.wecom_intelligent_bot.secret = os.getenv(
+        "ALERT_AI_WECOM_BOT_SECRET",
+        config.wecom_intelligent_bot.secret,
+    )
+    mask_names = os.getenv("ALERT_AI_MASK_NAMES")
+    if mask_names:
+        config.mask_names = [name.strip() for name in mask_names.split(",") if name.strip()]
