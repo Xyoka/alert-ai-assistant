@@ -26,6 +26,7 @@ class LLMConfig:
     model: str = ""
     timeout_seconds: int = 60
     max_focus_alerts: int = 10
+    max_prompt_alerts_per_bucket: int = 80
 
 
 @dataclass(slots=True)
@@ -35,6 +36,9 @@ class WeComConfig:
     token: str = ""
     target_user: str = ""
     max_message_chars: int = 3500
+    max_message_bytes: int = 3000
+    max_retries: int = 2
+    retry_delay_seconds: float = 1.0
     msg_type: str = "markdown"
     dry_run: bool = True
 
@@ -45,9 +49,12 @@ class MonitorApiConfig:
     base_url: str = ""
     search_path: str = "/api/monitor/alarm/search"
     sid: str = ""
+    sid_param_name: str = "token"
     owner_instance_name: str = ""
     timeout_seconds: int = 30
     active_lookback_days: int = 5
+    page_limit: int = 1000
+    max_pages: int = 20
     field_mapping: dict[str, str] = field(default_factory=lambda: {
         "device_ip": "ip",
         "hostname": "hostname",
@@ -78,6 +85,7 @@ class AppConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
     wecom: WeComConfig = field(default_factory=WeComConfig)
     retention: RetentionConfig = field(default_factory=RetentionConfig)
+    max_summary_items_per_section: int = 80
     low_priority_keywords: list[str] = field(default_factory=lambda: [
         "服务器接入交换机端口连接状态告警",
         "端口连接状态告警",
@@ -112,6 +120,7 @@ def _build_config(data: dict[str, Any]) -> AppConfig:
         llm=LLMConfig(**_section(data, "llm")),
         wecom=WeComConfig(**_section(data, "wecom")),
         retention=RetentionConfig(**_section(data, "retention")),
+        max_summary_items_per_section=int(data.get("max_summary_items_per_section", 80)),
         low_priority_keywords=list(data.get("low_priority_keywords", [
             "服务器接入交换机端口连接状态告警",
             "端口连接状态告警",
@@ -133,4 +142,3 @@ def _apply_env_overrides(config: AppConfig) -> None:
     config.llm.api_key = os.getenv("ALERT_AI_LLM_API_KEY", config.llm.api_key)
     config.wecom.token = os.getenv("ALERT_AI_WECOM_TOKEN", config.wecom.token)
     config.wecom.webhook_url = os.getenv("ALERT_AI_WECOM_WEBHOOK_URL", config.wecom.webhook_url)
-

@@ -45,6 +45,7 @@ source:
 monitor_api:
   enabled: true
   sid: "你的SID"                           # 从网管平台获取
+  sid_param_name: "token"                  # 你提供的接口示例为 token=SID
   owner_instance_name: "你的姓名"           # 改为你的真实姓名
 
   bucket_search_units:
@@ -63,6 +64,8 @@ wecom:
   enabled: true
   webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"  # 群机器人Webhook
   dry_run: false
+  max_message_bytes: 3000              # 中文按字节限制，过长会自动拆分
+  max_retries: 2                       # 企业微信返回失败时重试
 ```
 
 密钥也可用环境变量覆盖（不写入 config.yaml）：
@@ -79,8 +82,14 @@ $env:ALERT_AI_WECOM_WEBHOOK_URL = "https://..."
 # dry-run 模式（不推送企业微信）
 .\.venv\Scripts\python.exe -m alert_ai_assistant run-once --config config.yaml --dry-run
 
+# 检查配置是否有明显缺项
+.\.venv\Scripts\python.exe -m alert_ai_assistant check-config --config config.yaml
+
 # 确认后去掉 --dry-run 真实推送
 .\.venv\Scripts\python.exe -m alert_ai_assistant run-once --config config.yaml
+
+# 查看最近一次摘要是否成功发送
+.\.venv\Scripts\python.exe -m alert_ai_assistant status --config config.yaml
 ```
 
 ### 配置定时任务（每小时准点自动推送）
@@ -98,8 +107,18 @@ schtasks /create /tn "alert-ai-assistant" /tr "完整路径\.venv\Scripts\python
 |---|---|
 | `run-once --config config.yaml` | 拉取告警 → 摘要 → 推送 |
 | `run-once --config config.yaml --dry-run` | 同上，不推送企业微信 |
+| `check-config --config config.yaml` | 检查配置缺项 |
+| `status --config config.yaml` | 查看最近一次摘要投递状态 |
 | `summarize-sample --input 文件.txt` | 解析本地样例文件 |
 | `cleanup --config config.yaml` | 清理过期数据 |
+
+## 稳定性设计
+
+- 告警很多时，网管 API 会按 `page_limit` / `max_pages` 分页拉取，避免超过单页上限后漏统计。
+- 摘要过长时，会按 UTF-8 字节数自动拆成多条企业微信消息，并添加 `【告警摘要 1/N】` 标题。
+- 企业微信返回非 0 错误码时会判定为发送失败，并按 `max_retries` 重试；任务会返回非 0，便于在任务计划程序中发现异常。
+- LLM 不可用时自动降级为规则摘要；规则摘要也会限制每段展开条数，并提示“另有 N 条未展开，请登录网管平台查看完整列表”。
+- 程序自身运行失败时，会尽量推送“摘要助手运行失败”提示，提醒运维人员回到网管平台和原始企业微信告警确认。
 
 ## 数据保存策略
 

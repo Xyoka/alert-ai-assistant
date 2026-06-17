@@ -120,6 +120,13 @@ class AlertStore:
             )
             return int(cursor.lastrowid)
 
+    def latest_summary(self) -> dict | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM summaries ORDER BY created_at DESC, id DESC LIMIT 1"
+            ).fetchone()
+        return dict(row) if row else None
+
     def cleanup(self, raw_alert_days: int, summary_days: int) -> tuple[int, int]:
         alert_before = (datetime.now() - timedelta(days=raw_alert_days)).strftime("%Y-%m-%d %H:%M:%S")
         summary_before = (datetime.now() - timedelta(days=summary_days)).strftime("%Y-%m-%d %H:%M:%S")
@@ -133,5 +140,4 @@ class AlertStore:
                 (summary_before,),
             ).rowcount
         return int(alert_deleted), int(summary_deleted)
-
 

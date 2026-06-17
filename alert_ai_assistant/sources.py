@@ -73,21 +73,19 @@ class MonitorApiSource:
         now = datetime.now()
         active_start = now - timedelta(days=self.config.active_lookback_days)
         records: list[AlertRecord] = []
-        # Unhandled: last_alarm_time in hourly window (catch recurring alarms)
-        records.extend(self.fetch_bucket(STATUS_UNHANDLED, window_start, window_end))
-        # Processing: create_time in hourly window (precise match, no lookback)
-        records.extend(self._fetch_processing_window(STATUS_PROCESSING, window_start, window_end))
-        # Ended: broader create_time range, filter by update_time within window
+        # Active alarms must reflect the current platform view, not only this hour.
+        records.extend(self.fetch_bucket(STATUS_UNHANDLED, active_start, now))
+        records.extend(self._fetch_processing_window(STATUS_PROCESSING, active_start, now))
+        # Ended: broader create_time range, filter by recovery/update time within the target hour.
         ended_payloads = self._request_bucket(STATUS_ENDED, active_start, now)
         for payload in ended_payloads:
-            update_time_text = payload.get("update_time") or ""
-            end_time = parse_datetime(update_time_text)
+            end_time = self._payload_end_time(payload)
             if end_time and window_start <= end_time <= window_end:
                 records.append(self._payload_to_record(payload, STATUS_ENDED))
         return records
 
     def _fetch_processing_window(self, bucket: str, start: datetime, end: datetime) -> list[AlertRecord]:
-        """Fetch processing alarms using create_time for precise hourly match."""
+        """Fetch processing alarms over the active lookback range."""
         units = [dict(item) for item in self.config.bucket_search_units.get(bucket, [])]
         units.append({
             "attr": "create_time",
@@ -107,20 +105,58 @@ class MonitorApiSource:
 
     def _request_with_units(self, bucket: str, units: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Make API request with pre-built search units."""
+        page_limit = max(1, int(self.config.page_limit))
+        max_pages = max(1, int(self.config.max_pages))
+        all_items: list[dict[str, Any]] = []
+        seen_items: set[str] = set()
+        seen_pages: set[str] = set()
+
+        for page_index in range(max_pages):
+            offset = page_index * page_limit
+            items = self._request_page(bucket, units, offset, page_limit)
+            if not items:
+                break
+            page_fingerprint = json_dumps(items)
+            if page_fingerprint in seen_pages:
+                break
+            seen_pages.add(page_fingerprint)
+
+            for item in items:
+                item_key = json_dumps(item)
+                if item_key in seen_items:
+                    continue
+                seen_items.add(item_key)
+                all_items.append(item)
+
+            if len(items) < page_limit:
+                break
+        return all_items
+
+    def _request_page(
+        self,
+        bucket: str,
+        units: list[dict[str, Any]],
+        offset: int,
+        limit: int,
+    ) -> list[dict[str, Any]]:
         params = {
-            "offset": 0, "limit": 1000,
+            "offset": offset,
+            "limit": limit,
             "search_unit_list": json.dumps(units, ensure_ascii=False, separators=(",", ":")),
-            "secret": self.config.sid,
+            self.config.sid_param_name or "token": self.config.sid,
         }
-        base = self.config.base_url.rstrip("/")
-        path = self.config.search_path if self.config.search_path.startswith("/") else f"/{self.config.search_path}"
-        url = f"{base}{path}?{urlencode(params)}"
+        url = self._build_search_url(params)
         request = Request(url, headers={"Accept": "application/json"})
         ssl_ctx = ssl._create_unverified_context()
         with urlopen(request, timeout=self.config.timeout_seconds, context=ssl_ctx) as response:
             body = response.read().decode("utf-8")
         data = json.loads(body)
         return list(_extract_items(data))
+
+    def _build_search_url(self, params: dict[str, Any]) -> str:
+        base = self.config.base_url.rstrip("/")
+        path = self.config.search_path if self.config.search_path.startswith("/") else f"/{self.config.search_path}"
+        return f"{base}{path}?{urlencode(params)}"
 
     def _search_units(self, bucket: str, start: datetime, end: datetime) -> list[dict[str, Any]]:
         units = [dict(item) for item in self.config.bucket_search_units.get(bucket, [])]
@@ -140,9 +176,16 @@ class MonitorApiSource:
 
     def _payload_to_record(self, payload: dict[str, Any], bucket: str) -> AlertRecord:
         mapping = self.config.field_mapping
-        # Ended: use update_time (resolve time); active: use last_alarm_time.
-        time_field = "update_time" if bucket == STATUS_ENDED else "last_alarm_time"
-        alarm_time_text = str(_get_path(payload, time_field) or "")
+        # Ended uses recovery/end time; active alarms prefer last_alarm_time
+        # but fall back to configured alarm_time/create_time because some platform
+        # payloads do not include last_alarm_time.
+        if bucket == STATUS_ENDED:
+            time_candidates = self._ended_time_candidates()
+        elif bucket == STATUS_UNHANDLED:
+            time_candidates = ("last_alarm_time", mapping.get("alarm_time", ""), "create_time")
+        else:
+            time_candidates = (mapping.get("alarm_time", ""), "create_time", "last_alarm_time")
+        alarm_time_text = str(_first_payload_value(payload, time_candidates) or "")
         title = str(_get_path(payload, mapping.get("title", "")) or "")
         content = str(_get_path(payload, mapping.get("content", "")) or "")
         if not content:
@@ -158,6 +201,22 @@ class MonitorApiSource:
             severity=str(_get_path(payload, mapping.get("severity", "")) or ""),
             external_id=str(_get_path(payload, mapping.get("external_id", "")) or ""),
             raw_payload=json_dumps(payload),
+        )
+
+    def _payload_end_time(self, payload: dict[str, Any]) -> datetime | None:
+        value = _first_payload_value(payload, self._ended_time_candidates())
+        return parse_datetime(str(value or ""))
+
+    def _ended_time_candidates(self) -> tuple[str, ...]:
+        mapping = self.config.field_mapping
+        return (
+            "update_time",
+            "recover_time",
+            "recovery_time",
+            "end_time",
+            "finish_time",
+            mapping.get("alarm_time", ""),
+            "create_time",
         )
 
 
@@ -223,3 +282,10 @@ def _get_path(payload: dict[str, Any], path: str) -> Any:
         current = current.get(part)
     return current
 
+
+def _first_payload_value(payload: dict[str, Any], paths: Iterable[str]) -> Any:
+    for path in paths:
+        value = _get_path(payload, path)
+        if value not in (None, ""):
+            return value
+    return None

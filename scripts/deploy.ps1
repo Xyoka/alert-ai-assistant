@@ -33,7 +33,12 @@ if (Test-Path "$ProjectRoot\.venv") {
 # 3. 安装依赖
 Write-Host "[3/5] 安装依赖..." -ForegroundColor Green
 & "$ProjectRoot\.venv\Scripts\pip.exe" install -U pip
-& "$ProjectRoot\.venv\Scripts\pip.exe" install -e "$ProjectRoot\[test]"
+Push-Location $ProjectRoot
+try {
+    & "$ProjectRoot\.venv\Scripts\pip.exe" install -e ".[test]"
+} finally {
+    Pop-Location
+}
 
 # 4. 初始化配置
 $configPath = "$ProjectRoot\config.yaml"
@@ -61,6 +66,10 @@ Write-Host "=== 部署完成 ===" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "快速验证（dry-run 模式）:" -ForegroundColor Yellow
 Write-Host "  .\.venv\Scripts\python.exe -m alert_ai_assistant run-once --config config.yaml --dry-run" -ForegroundColor White
+Write-Host "配置检查:" -ForegroundColor Yellow
+Write-Host "  .\.venv\Scripts\python.exe -m alert_ai_assistant check-config --config config.yaml" -ForegroundColor White
+Write-Host "查看最近一次摘要状态:" -ForegroundColor Yellow
+Write-Host "  .\.venv\Scripts\python.exe -m alert_ai_assistant status --config config.yaml" -ForegroundColor White
 Write-Host ""
 Write-Host "配置定时任务（每小时准点推送）:" -ForegroundColor Yellow
 Write-Host "  schtasks /create /tn `"alert-ai-assistant`" /tr `"$ProjectRoot\.venv\Scripts\python.exe -m alert_ai_assistant run-once --config $ProjectRoot\config.yaml`" /sc hourly /mo 1 /st HH:00 /f" -ForegroundColor White

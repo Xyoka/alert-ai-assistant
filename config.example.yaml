@@ -6,6 +6,8 @@ lock_file: data/run.lock
 log_file: logs/alert_ai_assistant.log
 timezone: Asia/Shanghai
 log_level: INFO
+# 规则兜底摘要每个段落最多展开多少条明细，超过后提示未展开数量。
+max_summary_items_per_section: 80
 
 source:
   # Use mock_text for local development, monitor_api for the company network.
@@ -17,10 +19,15 @@ monitor_api:
   base_url: "https://10.50.132.120"
   search_path: "/api/monitor/alarm/search"
   sid: ""
+  # 你提供的网管接口示例使用 token=SID；如实际接口字段名不同可改成 secret 等。
+  sid_param_name: "token"
   owner_instance_name: "你的负责人姓名"
   timeout_seconds: 30
   active_lookback_days: 5
-  # API 查询参数用 secret= 而不是 token=，自签名证书自动跳过验证。
+  # 告警很多时自动分页，避免单次最多1000条导致漏拉。
+  page_limit: 1000
+  max_pages: 20
+  # 自签名证书自动跳过验证。
   field_mapping:
     device_ip: "ip"
     hostname: "instance_name"
@@ -69,13 +76,19 @@ llm:
   model: "deepseek-chat"
   timeout_seconds: 60
   max_focus_alerts: 10
+  # 发给 LLM 的每类告警明细上限，避免告警爆发时 prompt 过长。
+  max_prompt_alerts_per_bucket: 80
 
 wecom:
   enabled: false
   webhook_url: ""
   token: ""
   target_user: ""
+  # 企业微信对单条消息有长度限制。字节上限比字符上限更关键，中文会占多个字节。
   max_message_chars: 3500
+  max_message_bytes: 3000
+  max_retries: 2
+  retry_delay_seconds: 1.0
   msg_type: markdown
   dry_run: true
 
@@ -92,4 +105,3 @@ low_priority_keywords:
   - "出流量使用率"
 
 # mask_names: []  # 脱敏功能已移除，此配置不再生效
-

@@ -24,6 +24,10 @@ def main(argv: list[str] | None = None) -> int:
         return run_once(args)
     if args.command == "cleanup":
         return cleanup(args)
+    if args.command == "check-config":
+        return check_config(args)
+    if args.command == "status":
+        return status(args)
     parser.print_help()
     return 2
 
@@ -43,11 +47,21 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup_parser = subparsers.add_parser("cleanup", help="Delete expired local records.")
     cleanup_parser.add_argument("--config", required=True, help="Path to config.yaml.")
 
+    check_parser = subparsers.add_parser("check-config", help="Validate config.yaml before rollout.")
+    check_parser.add_argument("--config", required=True, help="Path to config.yaml.")
+
+    status_parser = subparsers.add_parser("status", help="Show latest local summary delivery status.")
+    status_parser.add_argument("--config", required=True, help="Path to config.yaml.")
+
     return parser
 
 
 def run_once(args: argparse.Namespace) -> int:
-    config = load_config(args.config)
+    try:
+        config = load_config(args.config)
+    except Exception as exc:
+        print(f"failed to load config: {exc}", file=sys.stderr)
+        return 1
     if args.dry_run:
         config.wecom.dry_run = True
     setup_logging(config)
@@ -82,18 +96,28 @@ def run_once(args: argparse.Namespace) -> int:
                 notify_result.delivered,
             )
             logger.info(
-                "Summary saved. ai_used=%s delivered=%s dry_run=%s error=%s",
+                "Summary saved. ai_used=%s delivered=%s dry_run=%s parts=%s delivered_parts=%s error=%s",
                 ai_used,
                 notify_result.delivered,
                 notify_result.dry_run,
+                notify_result.parts,
+                notify_result.delivered_parts,
                 notify_result.error,
             )
             print(summary_text)
+            if not notify_result.delivered and not notify_result.dry_run:
+                print(f"WeCom notification failed: {notify_result.error}", file=sys.stderr)
+                return 4
             return 0
     except LockError as exc:
         logger.warning("%s", exc)
         print(str(exc), file=sys.stderr)
         return 3
+    except Exception as exc:
+        logger.exception("run-once failed")
+        _notify_runtime_failure(config, logger, exc)
+        print(f"run-once failed: {exc}", file=sys.stderr)
+        return 1
 
 
 def summarize_sample(args: argparse.Namespace) -> int:
@@ -121,7 +145,11 @@ def summarize_sample(args: argparse.Namespace) -> int:
 
 
 def cleanup(args: argparse.Namespace) -> int:
-    config = load_config(args.config)
+    try:
+        config = load_config(args.config)
+    except Exception as exc:
+        print(f"failed to load config: {exc}", file=sys.stderr)
+        return 1
     setup_logging(config)
     store = AlertStore(config.database_path)
     store.init_schema()
@@ -135,6 +163,87 @@ def cleanup(args: argparse.Namespace) -> int:
         summary_deleted,
     )
     print(f"alert_deleted={alert_deleted} summary_deleted={summary_deleted}")
+    return 0
+
+
+def check_config(args: argparse.Namespace) -> int:
+    try:
+        config = load_config(args.config)
+    except Exception as exc:
+        print(f"failed to load config: {exc}", file=sys.stderr)
+        return 1
+    issues: list[str] = []
+
+    if config.source.kind == "mock_text":
+        if not config.source.mock_text_path:
+            issues.append("source.mock_text_path is required when source.kind=mock_text")
+    elif config.source.kind == "monitor_api":
+        if not config.monitor_api.base_url:
+            issues.append("monitor_api.base_url is required")
+        if not config.monitor_api.sid:
+            issues.append("monitor_api.sid is required or set ALERT_AI_MONITOR_SID")
+        if not config.monitor_api.sid_param_name:
+            issues.append("monitor_api.sid_param_name must not be empty")
+        if not config.monitor_api.owner_instance_name:
+            issues.append("monitor_api.owner_instance_name is required")
+        if config.monitor_api.page_limit <= 0:
+            issues.append("monitor_api.page_limit must be > 0")
+        if config.monitor_api.max_pages <= 0:
+            issues.append("monitor_api.max_pages must be > 0")
+    else:
+        issues.append("source.kind must be mock_text or monitor_api")
+
+    if config.llm.enabled:
+        if not config.llm.base_url:
+            issues.append("llm.base_url is required when llm.enabled=true")
+        if not config.llm.api_key:
+            issues.append("llm.api_key is required when llm.enabled=true or set ALERT_AI_LLM_API_KEY")
+        if not config.llm.model:
+            issues.append("llm.model is required when llm.enabled=true")
+
+    if not config.wecom.dry_run:
+        if not config.wecom.enabled:
+            issues.append("wecom.enabled must be true when wecom.dry_run=false")
+        if not config.wecom.webhook_url:
+            issues.append("wecom.webhook_url is required when wecom.dry_run=false")
+    if config.wecom.max_message_bytes <= 0:
+        issues.append("wecom.max_message_bytes must be > 0")
+    if config.wecom.max_retries < 0:
+        issues.append("wecom.max_retries must be >= 0")
+    if config.max_summary_items_per_section <= 0:
+        issues.append("max_summary_items_per_section must be > 0")
+
+    print(f"source.kind={config.source.kind}")
+    print(f"database_path={config.database_path}")
+    print(f"wecom.dry_run={config.wecom.dry_run}")
+    if issues:
+        print("\n配置检查发现问题：")
+        for issue in issues:
+            print(f"- {issue}")
+        return 2
+    print("\n配置检查通过。")
+    return 0
+
+
+def status(args: argparse.Namespace) -> int:
+    try:
+        config = load_config(args.config)
+    except Exception as exc:
+        print(f"failed to load config: {exc}", file=sys.stderr)
+        return 1
+    store = AlertStore(config.database_path)
+    store.init_schema()
+    latest = store.latest_summary()
+    print(f"database_path={config.database_path}")
+    if not latest:
+        print("latest_summary=none")
+        return 0
+    print(
+        "latest_summary="
+        f"id={latest['id']} window={latest['window_start']}~{latest['window_end']} "
+        f"delivered={bool(latest['delivered'])} ai_used={bool(latest['ai_used'])} "
+        f"created_at={latest['created_at']}"
+    )
     return 0
 
 
@@ -167,3 +276,20 @@ def setup_logging(config: AppConfig, console_only: bool = False) -> None:
         force=True,
     )
 
+
+def _notify_runtime_failure(config: AppConfig, logger: logging.Logger, exc: Exception) -> None:
+    if config.wecom.dry_run or not config.wecom.enabled or not config.wecom.webhook_url:
+        return
+    text = (
+        "**网络告警AI摘要助手运行失败**\n"
+        f"- 时间：{datetime.now():%Y-%m-%d %H:%M:%S}\n"
+        "- 影响：本周期摘要可能未生成，请立即以网管平台和原始企业微信告警为准。\n"
+        f"- 错误：{type(exc).__name__}: {str(exc)[:300]}"
+    )
+    try:
+        result = WeComSmartBotNotifier(config.wecom, logger).send(text)
+    except Exception as notify_exc:  # pragma: no cover - defensive failure path.
+        logger.warning("Failed to notify runtime failure: %s", notify_exc)
+        return
+    if not result.delivered:
+        logger.warning("Runtime failure notification was not delivered: %s", result.error)

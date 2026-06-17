@@ -65,7 +65,7 @@ def generate_summary(
     ai_text = client.complete(prompt) if client else None
     if ai_text:
         return ai_text, True
-    return fallback_summary(stats), False
+    return fallback_summary(stats, config.max_summary_items_per_section), False
 
 
 def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
@@ -102,6 +102,14 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
     bw_processing, det_processing = split_bw(processing)
     bw_ended, det_ended = split_bw(ended)
 
+    def limited_briefs(items):
+        limit = max(1, config.llm.max_prompt_alerts_per_bucket)
+        return [brief(a) for a in items[:limit]], max(0, len(items) - limit)
+
+    unhandled_briefs, unhandled_omitted = limited_briefs(det_unhandled)
+    processing_briefs, processing_omitted = limited_briefs(det_processing)
+    ended_briefs, ended_omitted = limited_briefs(det_ended)
+
     payload = {
         "window": f"{stats.window_start:%Y-%m-%d %H:%M} - {stats.window_end:%Y-%m-%d %H:%M}",
         "stats": {
@@ -111,9 +119,14 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
             "ended": stats.ended_count,
         },
         "alert_list": {
-            "未处理": [brief(a) for a in det_unhandled],
-            "处理中": [brief(a) for a in det_processing],
-            "已结束": [brief(a) for a in det_ended],
+            "未处理": unhandled_briefs,
+            "处理中": processing_briefs,
+            "已结束": ended_briefs,
+        },
+        "未展开明细数": {
+            "未处理": unhandled_omitted,
+            "处理中": processing_omitted,
+            "已结束": ended_omitted,
         },
         "带宽利用率告警": {
             "未处理": len(bw_unhandled),
@@ -139,6 +152,7 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
 - **未处理（重点）**：观察每条告警的 content_detail，按**实际故障类型**分类（如端口Down、端口Up、链路故障、配置变更、CPU/内存告警、端口错误等），不要用"日志告警类""网络设备日志告警"这种笼统分类。子类名为纯文本不加粗。每条格式：IP / 时间 / 简要内容 / 负责人。`带宽利用率告警`字段按桶统计了数量，属于哪个桶就加到哪个段末尾（格式："端口带宽利用率告警：N条"），不逐条展开。
 - **处理中**：格式同上。带宽利用率告警同样处理。
 - **已结束**：格式同上。带宽利用率告警同样处理。
+- `未展开明细数` 表示因数量过多未放入明细列表的告警数量，如大于 0，必须在对应段末尾提示"另有N条未展开，请登录网管平台查看完整列表"。
 - 某类无告警则子内容写"无"，段名照常输出。
 
 数据：
@@ -154,7 +168,7 @@ def _collect_person(alert: AlertRecord) -> list[str]:
     return []
 
 
-def fallback_summary(stats: SummaryStats) -> str:
+def fallback_summary(stats: SummaryStats, max_items_per_section: int = 80) -> str:
     window = f"{stats.window_start:%Y-%m-%d %H:%M}-{stats.window_end:%H:%M}"
     if stats.total_new == 0 and not stats.unhandled_count and not stats.processing_count:
         return (
@@ -182,18 +196,31 @@ def fallback_summary(stats: SummaryStats) -> str:
         if not records:
             lines.append("无")
             return lines
+        display_limit = max(1, max_items_per_section)
+        displayed_detail = 0
+        covered = 0
         groups = Counter(a.title for a in records)
         for group_title, count in groups.most_common():
             if _is_bandwidth(group_title):
                 lines.append(f"端口带宽利用率告警：{count}条")
+                covered += count
             else:
+                if displayed_detail >= display_limit:
+                    continue
                 lines.append(f"{group_title}：")
                 for alert in [a for a in records if a.title == group_title]:
+                    if displayed_detail >= display_limit:
+                        break
                     interface = extract_interface(f"{alert.title}\n{alert.content}\n{alert.raw_payload}")
                     intf_text = f" ({interface})" if interface else ""
                     person = "、".join(_collect_person(alert))
                     person_text = f" / {person}" if person else ""
                     lines.append(f"- {alert.device_ip} / {alert.alarm_time_text}{intf_text}{person_text}")
+                    displayed_detail += 1
+                    covered += 1
+        omitted = max(0, len(records) - covered)
+        if omitted:
+            lines.append(f"另有{omitted}条未展开，请登录网管平台查看完整列表。")
         return lines
 
     result = [

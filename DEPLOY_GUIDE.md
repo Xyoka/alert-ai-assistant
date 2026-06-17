@@ -43,7 +43,7 @@
 python --version
 ```
 
-3. 如果显示 `Python 3.11.x` 或类似信息，说明安装成功 ✅
+3. 如果显示 `Python 3.11.x` 或类似信息，说明安装成功。
 
 ---
 
@@ -90,7 +90,7 @@ powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
 
 - 脚本会自动创建虚拟环境、安装依赖包、运行测试
 - 整个过程约 **1-3 分钟**
-- 如果看到 **"=== 部署完成 ===" ** 的绿色字，说明安装成功 ✅
+- 如果看到 **"=== 部署完成 ==="** 的绿色字，说明安装成功。
 - 如果出现红色错误，截屏发给技术人员
 
 ---
@@ -115,9 +115,11 @@ notepad config.yaml
 
 ```yaml
 sid: "你的SID"
+sid_param_name: "token"
 ```
 
 把 `你的SID` 替换为技术人员给你的凭证码（SID）。
+当前网管接口示例使用 `token=SID`，所以 `sid_param_name` 保持 `token` 即可；如果实际接口字段名不同，再按接口文档调整。
 
 #### ② 填写你的姓名
 
@@ -135,15 +137,15 @@ owner_instance_name: "张晏瑞"
     unhandled:
       ...
       - attr: instance_name
-        search: ["张晏瑞"]     ← 改成你的名字
+        search: ["张晏瑞"]     # 改成你的名字
     processing:
       ...
       - attr: instance_name
-        search: ["张晏瑞"]     ← 改成你的名字
+        search: ["张晏瑞"]     # 改成你的名字
     ended:
       ...
       - attr: instance_name
-        search: ["张晏瑞"]     ← 改成你的名字
+        search: ["张晏瑞"]     # 改成你的名字
 ```
 
 #### ③ 填写 LLM API 密钥
@@ -168,9 +170,11 @@ llm:
 wecom:
   enabled: true
   webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的key"
+  max_message_bytes: 3000
+  max_retries: 2
 ```
 
-把 `你的key` 替换为技术人员给你的 Webhook key。  
+把 `你的key` 替换为技术人员给你的 Webhook key。
 （获取方式见文末备注）
 
 ### 4.3 保存文件
@@ -181,6 +185,17 @@ wecom:
 
 ## 5. 测试运行
 
+### 5.0 检查配置
+
+在 PowerShell 中执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m alert_ai_assistant check-config --config config.yaml
+```
+
+如果提示“配置检查通过”，再继续 dry-run 和正式推送。
+如果提示缺少 SID、Webhook 或 API Key，先回到 `config.yaml` 修正。
+
 ### 5.1 先试 dry-run 模式（不推送消息到企业微信）
 
 在 PowerShell 中执行：
@@ -189,7 +204,7 @@ wecom:
 .\.venv\Scripts\python.exe -m alert_ai_assistant run-once --config config.yaml --dry-run
 ```
 
-如果看到类似下面的输出（数字可能不同），说明配置正确 ✅：
+如果看到类似下面的输出（数字可能不同），说明配置正确：
 
 ```
 Fetched 6 records, inserted 0 new records.
@@ -215,7 +230,21 @@ WeCom response: {"errcode":0,"errmsg":"ok"}
 delivered=True
 ```
 
-说明推送成功 ✅！去企业微信群里查看消息。
+说明推送成功。去企业微信群里查看消息。
+
+如果告警很多，摘要可能会分成多条发送，标题类似：
+
+```text
+【告警摘要 1/3】
+【告警摘要 2/3】
+【告警摘要 3/3】
+```
+
+这是正常现象。若只收到部分分段，请运行下面命令查看最近一次投递状态：
+
+```powershell
+.\.venv\Scripts\python.exe -m alert_ai_assistant status --config config.yaml
+```
 
 ---
 
@@ -270,6 +299,12 @@ schtasks /create /tn "alert-ai-assistant" /tr "D:\alert-ai-assistant\.venv\Scrip
 
 ```powershell
 .\.venv\Scripts\python.exe -m alert_ai_assistant run-once --config config.yaml
+```
+
+### 查看最近一次摘要状态
+
+```powershell
+.\.venv\Scripts\python.exe -m alert_ai_assistant status --config config.yaml
 ```
 
 ### 清理过期数据

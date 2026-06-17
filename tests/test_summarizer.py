@@ -2,7 +2,7 @@ from datetime import datetime
 
 from alert_ai_assistant.config import AppConfig
 from alert_ai_assistant.models import AlertRecord
-from alert_ai_assistant.summarizer import build_stats, fallback_summary, generate_summary
+from alert_ai_assistant.summarizer import build_llm_prompt, build_stats, fallback_summary, generate_summary
 
 
 class FailingLLM:
@@ -66,3 +66,52 @@ def test_generate_summary_falls_back_when_llm_fails():
     assert "**总体情况**" in text
     assert "0条" in text
 
+
+def test_fallback_summary_limits_expanded_items_and_mentions_omitted_count():
+    start = datetime(2026, 5, 11, 10)
+    end = datetime(2026, 5, 11, 10, 59, 59)
+    records = [
+        AlertRecord(
+            source_type="snmp",
+            status_bucket="unhandled",
+            device_ip=f"10.0.0.{index}",
+            hostname=f"SW-{index}",
+            alarm_time=start,
+            title="CPU告警",
+            content="CPU high",
+        )
+        for index in range(5)
+    ]
+    stats = build_stats(records, start, end, [], 10)
+
+    text = fallback_summary(stats, max_items_per_section=2)
+
+    assert text.count("- 10.0.0.") == 2
+    assert "另有3条未展开" in text
+
+
+def test_llm_prompt_limits_alert_details_per_bucket():
+    start = datetime(2026, 5, 11, 10)
+    end = datetime(2026, 5, 11, 10, 59, 59)
+    config = AppConfig()
+    config.llm.max_prompt_alerts_per_bucket = 2
+    records = [
+        AlertRecord(
+            source_type="snmp",
+            status_bucket="unhandled",
+            device_ip=f"10.0.0.{index}",
+            hostname=f"SW-{index}",
+            alarm_time=start,
+            title="CPU告警",
+            content="CPU high",
+        )
+        for index in range(5)
+    ]
+    stats = build_stats(records, start, end, [], 10)
+
+    prompt = build_llm_prompt(stats, config)
+
+    assert "10.0.0.0" in prompt
+    assert "10.0.0.1" in prompt
+    assert "10.0.0.2" not in prompt
+    assert '"未处理": 3' in prompt
