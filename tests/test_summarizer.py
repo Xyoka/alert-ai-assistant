@@ -196,7 +196,7 @@ def test_llm_prompt_includes_all_alert_details_without_omitted_bucket():
     start = datetime(2026, 5, 11, 10)
     end = datetime(2026, 5, 11, 10, 59, 59)
     config = AppConfig()
-    config.llm.max_prompt_alerts_per_bucket = 2
+    config.llm.max_prompt_alerts_per_bucket = 10  # high enough to avoid truncation
     records = [
         AlertRecord(
             source_type="snmp",
