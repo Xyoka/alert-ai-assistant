@@ -92,6 +92,11 @@ class MonitorApiSource:
         their original create_time.
         """
         units = [dict(item) for item in self.config.bucket_search_units.get(bucket, [])]
+        if not units:
+            units = [
+                {"attr": "is_ignore", "search": [0], "operator": "="},
+                {"attr": "instance_name", "search": [self.config.owner_instance_name], "operator": "="},
+            ]
         units.append({
             "attr": "last_alarm_time",
             "search": [start.strftime("%Y-%m-%d %H:%M:%S"), end.strftime("%Y-%m-%d %H:%M:%S")],
