@@ -343,7 +343,7 @@ schtasks /create /tn "alert-ai-assistant" /tr "D:\alert-ai-assistant\.venv\Scrip
 文件：`alert_ai_assistant/summarizer.py`，搜索 `build_llm_prompt` 函数中的 `要求和规矩：`
 
 可以修改的部分举例：
-- 三段结构的标题名称（如"未处理（重点）"改为"需要关注的告警"）
+- 四段结构的标题名称（如"未处理（重点）"改为"需要关注的告警"）
 - 每条告警的展示字段和顺序
 - 分类规则和故障类型列表
 - 带宽利用率告警的处理方式

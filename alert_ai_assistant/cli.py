@@ -210,9 +210,6 @@ def check_config(args: argparse.Namespace) -> int:
         issues.append("wecom.max_message_bytes must be > 0")
     if config.wecom.max_retries < 0:
         issues.append("wecom.max_retries must be >= 0")
-    if config.max_summary_items_per_section <= 0:
-        issues.append("max_summary_items_per_section must be > 0")
-
     print(f"source.kind={config.source.kind}")
     print(f"database_path={config.database_path}")
     print(f"wecom.dry_run={config.wecom.dry_run}")

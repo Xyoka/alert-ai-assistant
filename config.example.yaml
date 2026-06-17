@@ -6,8 +6,6 @@ lock_file: data/run.lock
 log_file: logs/alert_ai_assistant.log
 timezone: Asia/Shanghai
 log_level: INFO
-# 规则兜底摘要每个段落最多展开多少条明细，超过后提示未展开数量。
-max_summary_items_per_section: 80
 
 source:
   # Use mock_text for local development, monitor_api for the company network.
@@ -77,8 +75,6 @@ llm:
   model: "deepseek-chat"
   timeout_seconds: 60
   max_focus_alerts: 10
-  # 发给 LLM 的每类告警明细上限，避免告警爆发时 prompt 过长。
-  max_prompt_alerts_per_bucket: 80
 
 wecom:
   enabled: false

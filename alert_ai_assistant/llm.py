@@ -28,9 +28,9 @@ class OpenAICompatibleClient:
                         "你是网络运维告警摘要助手。只根据输入事实总结，措辞谨慎，"
                         "不要说无需处理、可以忽略或已确认无风险。"
                         "输出要求：\n"
-                        "1. 简短精炼：跳过详细信息，只精选少量最紧急的告警。\n"
-                        "2. 分类聚合：同一IP同类告警合并描述。\n"
-                        "3. 标出负责人：每条告警括号标明负责人姓名。\n"
+                        "1. 未处理和已结束告警必须覆盖全部输入明细，不得省略。\n"
+                        "2. 处理中告警只做数量统计和类型归类，不逐条展开。\n"
+                        "3. 按业务优先级输出：未处理优先于已结束，已结束优先于处理中。\n"
                         "4. 用 markdown 格式（**加粗**、- 列表），不加多余评论。"
                     ),
                 },
@@ -66,5 +66,4 @@ class OpenAICompatibleClient:
         if base_url.endswith("/v1"):
             return f"{base_url}/chat/completions"
         return f"{base_url}/v1/chat/completions"
-
 
