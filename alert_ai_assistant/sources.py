@@ -85,10 +85,15 @@ class MonitorApiSource:
         return records
 
     def _fetch_processing_window(self, bucket: str, start: datetime, end: datetime) -> list[AlertRecord]:
-        """Fetch processing alarms over the requested time range."""
+        """Fetch processing alarms over the requested time range.
+
+        Uses last_alarm_time (same as unhandled) so that alerts with a
+        recurring trigger in the current window are matched, regardless of
+        their original create_time.
+        """
         units = [dict(item) for item in self.config.bucket_search_units.get(bucket, [])]
         units.append({
-            "attr": "create_time",
+            "attr": "last_alarm_time",
             "search": [start.strftime("%Y-%m-%d %H:%M:%S"), end.strftime("%Y-%m-%d %H:%M:%S")],
             "operator": "=",
         })
