@@ -162,7 +162,7 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
 - 严格四段输出：**总体情况** / **未处理（重点）** / **已结束** / **处理中**
 - **总体情况**：逐行列出窗口时间、未处理x条、已结束x条、处理中x条。
 - **未处理（重点）**：按故障类型分类（端口Down、链路故障、配置变更等），不用笼统分类。
-  每条格式：IP / 主机 / 主要故障内容 / 负责人。
+  每条格式：IP / 主机 / 主要故障内容（主机名称已含负责人，不再单独展示）。
   不展示具体告警时间（窗口时间已说明发生时段）。
   同故障类型的多条告警合并为一条，注明发生次数，如"发生3次"。
 - **已结束**：同上格式。同故障类型多条告警同样合并。
@@ -288,10 +288,9 @@ def format_alert_detail(alert: AlertRecord) -> str:
         fault = f"接口{interface}：{content}"
     else:
         fault = content
-    person = "、".join(_collect_person(alert)) or "未知"
     hostname = alert.hostname or "未知"
     ip = alert.device_ip or "未知"
-    return f"- IP：{ip} / 主机：{hostname} / 故障：{fault} / 负责人：{person}"
+    return f"- IP：{ip} / 主机：{hostname} / 故障：{fault}"
 
 
 def _extract_person(hostname: str) -> str:
