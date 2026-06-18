@@ -162,13 +162,13 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
 - 严格四段输出：**总体情况** / **未处理（重点）** / **已结束** / **处理中**
 - **总体情况**：逐行列出窗口时间、未处理x条、已结束x条、处理中x条。
 - **未处理（重点）**：按故障类型分类（端口Down、链路故障、配置变更等），不用笼统分类。
-  每条格式：IP / 主机 / 接口 / 内容 / 负责人。
+  每条格式：IP / 主机 / 主要故障内容 / 负责人。
   不展示具体告警时间（窗口时间已说明发生时段）。
   同故障类型的多条告警合并为一条，注明发生次数，如"发生3次"。
 - **已结束**：同上格式。同故障类型多条告警同样合并。
 - **处理中**：只输出数量和类型归类，不逐条展开。`带宽告警统计.处理中`只输出数量。
 - `带宽告警统计.未处理`和`带宽告警统计.已结束`仅输出"端口带宽利用率告警：N条"，不逐条展开。
-- **接口名称、IP、设备名等关键信息必须完整展示，不得截断、缩写或用省略号**，这些是故障定位的关键依据。
+- **IP、设备名、接口、阈值等关键信息必须完整展示，不得截断、缩写或用省略号**，这些是故障定位的关键依据。
 - 精简原则：告警说明保留故障类型、设备、接口等关键信息，去掉冗余修饰词。
 - 不得输出"无需处理""可以忽略""已无风险"；可用"建议确认""建议关注"。
 - 只根据输入数据总结，不编造原因或影响范围。
@@ -281,12 +281,17 @@ def fallback_summary(stats: SummaryStats, max_items_per_section: int | None = No
 
 
 def format_alert_detail(alert: AlertRecord) -> str:
-    interface = extract_interface(f"{alert.title}\n{alert.content}\n{alert.raw_payload}") or "未知"
+    interface = extract_interface(f"{alert.title}\n{alert.content}\n{alert.raw_payload}")
+    content = single_line((alert.content or alert.title or "未知").replace("<br>", " | "), 0)
+    # Merge interface into fault description when relevant.
+    if interface:
+        fault = f"接口{interface}：{content}"
+    else:
+        fault = content
     person = "、".join(_collect_person(alert)) or "未知"
     hostname = alert.hostname or "未知"
     ip = alert.device_ip or "未知"
-    content = single_line((alert.content or alert.title or "未知").replace("<br>", " | "), 0)
-    return f"- IP：{ip} / 主机：{hostname} / 接口：{interface} / 内容：{content} / 负责人：{person}"
+    return f"- IP：{ip} / 主机：{hostname} / 故障：{fault} / 负责人：{person}"
 
 
 def _extract_person(hostname: str) -> str:
