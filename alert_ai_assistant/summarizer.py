@@ -112,7 +112,14 @@ def ai_summary_covers_required_alerts(text: str, stats: SummaryStats) -> bool:
 def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
     unhandled = [a for a in stats.all_alerts if a.status_bucket == "unhandled"]
     processing = [a for a in stats.all_alerts if a.status_bucket == "processing"]
-    ended = [a for a in stats.all_alerts if a.status_bucket == "ended"]
+    # Filter ended alerts by alarm_time to match ended_count (exclude records
+    # whose alarm_time was resolved to a different field outside the window).
+    ended = [
+        a for a in stats.all_alerts
+        if a.status_bucket == "ended"
+        and a.alarm_time
+        and stats.window_start <= a.alarm_time <= stats.window_end
+    ]
 
     # Separate bandwidth alerts from detailed ones – bandwidth only shown as counts.
     bw_unhandled, det_unhandled = _split_bw(unhandled)
@@ -164,7 +171,7 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
 - **未处理（重点）**：按故障类型分类（端口Down、链路故障、配置变更等），不用笼统分类。
   每条格式：IP / 主机 / 主要故障内容（主机名称已含负责人，不再单独展示）。
   不展示具体告警时间（窗口时间已说明发生时段）。
-  同故障类型的多条告警合并为一条，注明发生次数，如"发生3次"。
+  同故障类型的多条告警合并为一条，注明发生次数。仅发生1次不展示次数，发生多次的如"发生3次"。
 - **已结束**：同上格式。同故障类型多条告警同样合并。
 - **处理中**：只输出数量和类型归类，不逐条展开。`带宽告警统计.处理中`只输出数量。
 - `带宽告警统计.未处理`和`带宽告警统计.已结束`仅输出"端口带宽利用率告警：N条"，不逐条展开。
