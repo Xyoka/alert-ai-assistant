@@ -16,7 +16,9 @@ _BW_KEYWORDS = (
     "入流量使用率",
     "出流量使用率",
     "流量统计超过阈值",
+    "流量超过阈值",
     "流量超阈值",
+    "Traffic statistics exceeded the threshold",
     "带宽利用率",
     "端口带宽使用率",
 )
