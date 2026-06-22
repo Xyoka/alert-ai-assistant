@@ -98,18 +98,18 @@ def ai_summary_covers_required_alerts(text: str, stats: SummaryStats) -> bool:
         if alert.status_bucket in {STATUS_UNHANDLED, STATUS_ENDED}
         and not _is_bandwidth_alert(alert)
     ]
-    has_bandwidth = any(
-        _is_bandwidth_alert(a)
-        for a in stats.all_alerts
-        if a.status_bucket in {STATUS_UNHANDLED, STATUS_ENDED}
-    )
-    missed_ips = set()
+    # Check each alert individually using IP+interface as a unique identifier.
+    # (Time is not displayed per user preference, so cannot be used for validation.)
+    missing = 0
     for alert in required:
-        if alert.device_ip and alert.device_ip not in text:
-            missed_ips.add(alert.device_ip)
-    # Strict when no bandwidth alerts to aggregate; lenient otherwise.
-    tolerance = 2 if has_bandwidth else 0
-    return len(missed_ips) <= tolerance
+        if not alert.device_ip or alert.device_ip not in text:
+            missing += 1
+            continue
+        # For interface-aware alerts the interface name must also appear.
+        iface = extract_interface(f"{alert.title}\n{alert.content}\n{alert.raw_payload}")
+        if iface and iface not in text:
+            missing += 1
+    return missing == 0
 
 
 def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
@@ -171,7 +171,7 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
 格式和规则：
 - 严格四段输出：**总体情况** / **未处理（重点）** / **已结束** / **处理中**
 - **总体情况**：逐行列出窗口时间、未处理x条、已结束x条、处理中x条。
-- **未处理（重点）**：按故障类型分类（端口Down、链路故障、配置变更等），不用笼统分类。
+- **未处理（重点）**：按故障类型分类（端口Down、链路故障、配置变更等），不用“日志告警”等笼统分类。
   每条格式：IP / 主机 / 主要故障内容（主机名称已含负责人，不再单独展示）。
   不展示具体告警时间（窗口时间已说明发生时段）。
   同一IP设备的多条告警应合并为一条，列出所有涉及的接口及对应故障，如"Ethernet1/17链路故障、Ethernet1/35连接状态down"。不同IP的告警不可合并。仅发生1次不展示次数，发生多次的如"发生3次"。
@@ -180,7 +180,7 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
 - **处理中**：只输出数量和类型归类，不逐条展开。`带宽告警统计.处理中`只输出数量。
 - `带宽告警统计.未处理`和`带宽告警统计.已结束`仅输出"端口带宽利用率告警：N条"，不逐条展开。
 - **IP、设备名、接口、阈值等关键信息必须完整展示，不得截断、缩写或用省略号**，这些是故障定位的关键依据。
-- 精简原则：告警说明保留故障类型、设备、接口等关键信息，去掉冗余修饰词。不展示"受影响网段""影响范围"等推测性信息。
+- 精简原则：告警说明保留故障类型、设备、接口等关键信息，去掉冗余修饰词。不展示"受影响网段""影响范围"等信息。
 - 不得输出"无需处理""可以忽略""已无风险"；可用"建议确认""建议关注"。
 - 只根据输入数据总结，不编造原因或影响范围。
 - 某类无告警写"无"，段名照常输出。
