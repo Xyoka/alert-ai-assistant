@@ -98,10 +98,20 @@ def ai_summary_covers_required_alerts(text: str, stats: SummaryStats) -> bool:
         if alert.status_bucket in {STATUS_UNHANDLED, STATUS_ENDED}
         and not _is_bandwidth_alert(alert)
     ]
-    # Check each alert individually using external_id as the unique key.
-    # external_id is globally unique and must appear as "(ID:xxx)" in the output.
+    # Check each unique (IP, interface) pair from non-bandwidth alerts is present.
+    # This is a uniqueness-based check — if the same pair appears in multiple
+    # buckets it only needs to appear once, but every distinct alert key must
+    # be verifiable somewhere in the output.
+    seen: set[tuple[str, str]] = set()
     for alert in required:
-        if not alert.external_id or alert.external_id not in text:
+        iface = extract_interface(f"{alert.title}\n{alert.content}\n{alert.raw_payload}")
+        key = (alert.device_ip, iface)
+        if key in seen:
+            continue
+        seen.add(key)
+        if not alert.device_ip or alert.device_ip not in text:
+            return False
+        if iface and iface not in text:
             return False
     return True
 
@@ -135,7 +145,6 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
             "interface": interface or "",
             "content": single_line(content_detail, 500),
             "person": person,
-            "ext_id": alert.external_id,
         }
 
     payload = {
@@ -176,7 +185,6 @@ def build_llm_prompt(stats: SummaryStats, config: AppConfig) -> str:
 - `带宽告警统计.未处理`和`带宽告警统计.已结束`仅输出"端口带宽利用率告警：N条"，不逐条展开。
 - **IP、设备名、接口、阈值等关键信息必须完整展示，不得截断、缩写或用省略号**，这些是故障定位的关键依据。
 - 精简原则：告警说明保留故障类型、设备、接口等关键信息，去掉冗余修饰词。不展示"受影响网段""影响范围"等信息。
-- 每条告警末尾必须附加其系统ID（ext_id字段值），格式如"(ID:123456)"，用于追溯核对。
 - 不得输出"无需处理""可以忽略""已无风险"；可用"建议确认""建议关注"。
 - 只根据输入数据总结，不编造原因或影响范围。
 - 某类无告警写"无"，段名照常输出。
