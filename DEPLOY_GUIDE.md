@@ -109,73 +109,81 @@ notepad config.yaml
 
 找到下面的内容，按照说明修改（**不要改动冒号和缩进**）：
 
-#### ① 填写你的网管平台 SID（凭证码）
+#### ① 修改数据源和启用开关
+
+找到下面三处，把值修改为正确的：
+
+```yaml
+source:
+  kind: monitor_api     # 从 mock_text 改为 monitor_api
+
+monitor_api:
+  enabled: true         # 从 false 改为 true
+
+llm:
+  enabled: true         # 从 false 改为 true
+
+wecom:
+  enabled: true         # 从 false 改为 true
+  dry_run: false        # 从 true 改为 false（正式推送），测试阶段先保持 true
+```
+
+#### ② 填写你的网管平台 SID（凭证码）
 
 找到：
 
 ```yaml
-sid: "你的SID"
-sid_param_name: "secret"
+sid: ""
 ```
 
-把 `你的SID` 替换为技术人员给你的凭证码（SID）。
-当前网管接口认证参数名为 `secret`，`sid_param_name` 保持 `secret` 即可；如果实际接口字段名不同，再按接口文档调整。
+把 `""` 替换为技术人员给你的凭证码（SID）。`sid_param_name` 保持 `"secret"` 即可；如果实际接口字段名不同，再按接口文档调整。
 
-#### ② 填写你的姓名
+#### ③ 填写你的姓名
 
 找到：
 
 ```yaml
-owner_instance_name: "张晏瑞"
+owner_instance_name: "你的负责人姓名"
 ```
 
-如果**你不是张晏瑞**，把 `张晏瑞` 改为**你自己的名字**。
+把 `你的负责人姓名` 改为**你自己的名字**。
 
-继续往下翻，找到以下三处，也把名字改成你自己的：
+继续往下翻，找到 `bucket_search_units` 下的三处 `instance_name`，也把名字改成你自己的：
 
 ```yaml
     unhandled:
       ...
       - attr: instance_name
-        search: ["张晏瑞"]     # 改成你的名字
+        search: ["你的负责人姓名"]     # 改成你的名字
     processing:
       ...
       - attr: instance_name
-        search: ["张晏瑞"]     # 改成你的名字
+        search: ["你的负责人姓名"]     # 改成你的名字
     ended:
       ...
       - attr: instance_name
-        search: ["张晏瑞"]     # 改成你的名字
+        search: ["你的负责人姓名"]     # 改成你的名字
 ```
 
-#### ③ 填写 LLM API 密钥
+#### ④ 填写 LLM API 密钥
 
 找到：
 
 ```yaml
 llm:
-  enabled: true
   base_url: "https://api.deepseek.com"
-  api_key: "sk-你的密钥"
+  api_key: ""            # 填入技术人员给你的 API 密钥
   model: "deepseek-chat"
 ```
 
-把 `sk-你的密钥` 替换为技术人员给你的 API 密钥。
-
-#### ④ 填写企业微信群机器人 Webhook
+#### ⑤ 填写企业微信群机器人 Webhook
 
 找到：
 
 ```yaml
 wecom:
-  enabled: true
-  webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的key"
-  max_message_bytes: 3000
-  max_retries: 2
+  webhook_url: ""    # 填入技术人员给你的 Webhook 地址
 ```
-
-把 `你的key` 替换为技术人员给你的 Webhook key。
-（获取方式见文末备注）
 
 ### 4.3 保存文件
 
@@ -340,7 +348,7 @@ schtasks /create /tn "alert-ai-assistant" /tr "D:\alert-ai-assistant\.venv\Scrip
 
 **AI 用户提示词**（告诉 AI 本次数据怎么输出）：
 
-文件：`alert_ai_assistant/summarizer.py`，搜索 `build_llm_prompt` 函数中的 `要求和规矩：`
+文件：`alert_ai_assistant/summarizer.py`，搜索 `build_llm_prompt` 函数中的 `格式和规则：`
 
 可以修改的部分举例：
 - 四段结构的标题名称（如"未处理（重点）"改为"需要关注的告警"）
@@ -354,8 +362,9 @@ schtasks /create /tn "alert-ai-assistant" /tr "D:\alert-ai-assistant\.venv\Scrip
 
 ```yaml
 low_priority_keywords:
-  - "端口连接状态告警"      # 端口类告警
-  - "使用率告警"            # 带宽利用率类
+  - "服务器接入交换机端口连接状态告警"
+  - "端口连接状态告警"
+  - "使用率告警"
   - "入流量使用率"
   - "出流量使用率"
 ```

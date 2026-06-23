@@ -49,12 +49,13 @@ if (Test-Path $configPath) {
     Copy-Item "$ProjectRoot\config.example.yaml" $configPath
     Write-Host ""
     Write-Host "请编辑 config.yaml，修改以下配置项:" -ForegroundColor Cyan
-    Write-Host "  1. monitor_api.sid          - 你的网管平台 SID" -ForegroundColor White
-    Write-Host "  2. owner_instance_name       - 你的姓名" -ForegroundColor White
-    Write-Host "  3. bucket_search_units 中的  - 所有 instance_name 改为你的姓名" -ForegroundColor White
-    Write-Host "  4. llm.api_key              - LLM API 密钥" -ForegroundColor White
-    Write-Host "  5. wecom.webhook_url        - 企业微信群机器人 Webhook" -ForegroundColor White
-    Write-Host "  另外请将 monitor_api.enabled、llm.enabled 设为 true，wecom.dry_run 设为 false" -ForegroundColor Yellow
+    Write-Host "  1. source.kind               - 改为 monitor_api" -ForegroundColor White
+    Write-Host "  2. monitor_api.sid           - 你的网管平台 SID" -ForegroundColor White
+    Write-Host "  3. owner_instance_name        - 你的姓名" -ForegroundColor White
+    Write-Host "  4. bucket_search_units 中的   - 所有 instance_name 改为你的姓名" -ForegroundColor White
+    Write-Host "  5. llm.api_key               - LLM API 密钥" -ForegroundColor White
+    Write-Host "  6. wecom.webhook_url         - 企业微信群机器人 Webhook" -ForegroundColor White
+    Write-Host "  另外请将 monitor_api.enabled、llm.enabled、wecom.enabled 设为 true，wecom.dry_run 设为 false" -ForegroundColor Yellow
 }
 
 # 5. 运行测试
